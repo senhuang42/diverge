@@ -1,0 +1,44 @@
+import json
+from pathlib import Path
+
+import numpy as np
+
+from diverge.config import RunConfig
+from diverge.embed import Embedder
+from diverge.generator import MockGenerator
+from diverge.session import run_session
+
+DATA = Path(__file__).parents[1] / "data"
+
+
+class SpectralBackend:
+    def embed(self, audio: list[np.ndarray], sample_rate: int) -> np.ndarray:
+        output = np.zeros((len(audio), 512), dtype=np.float32)
+        for row, signal in enumerate(audio):
+            spectrum = np.abs(np.fft.rfft(signal))
+            chunks = np.array_split(spectrum, 512)
+            output[row] = [np.mean(chunk) for chunk in chunks]
+            output[row, row % 512] += 1e-4
+        return output
+
+
+def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[(DATA / "ref_a.wav", 1)],
+        n_return=3,
+        n_oversample=6,
+        duration_s=1,
+        output_dir=tmp_path / "runs",
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+    run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
+    waves = sorted(run_dir.glob("cand_*.wav"))
+    assert len(waves) == 3
+    assert (run_dir / "manifest.json").exists()
+    assert (run_dir / "map.json").exists()
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert len(manifest["candidates"]) == 3
+    assert all(path.stat().st_size > 1_000 for path in waves)

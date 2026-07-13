@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diverge"
+version = "0.1.0"
+description = "Local-first reference-steered generative audio sampler"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "huggingface-hub==0.33.4",
+  "joblib==1.5.1",
+  "librosa==0.10.2.post1",
+  "numpy==1.23.5",
+  "scikit-learn==1.3.2",
+  "scipy==1.11.4",
+  "soundfile==0.13.1",
+  "torch==2.7.1",
+  "torchaudio==2.7.1",
+  "transformers==4.53.2",
+  "umap-learn==0.5.6",
+]
+
+[project.optional-dependencies]
+real = ["stable-audio-tools==0.0.19", "setuptools==80.9.0"]
+review = ["gradio==5.38.0"]
+dev = ["pytest==8.4.1", "ruff==0.12.4"]
+
+[project.scripts]
+diverge = "diverge.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diverge"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+markers = ["slow: requires model weights or long-running inference"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
