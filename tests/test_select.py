@@ -40,3 +40,12 @@ def test_drift_monotonically_prefers_novel_candidates() -> None:
     low = select_candidates(candidates, 1, spread=0, drift=0).selected[0]
     high = select_candidates(candidates, 1, spread=0, drift=100).selected[0]
     assert high.novelty >= low.novelty
+
+
+def test_self_novelty_weight_prefers_distance_from_recent_keeps() -> None:
+    repeated = _candidate(0, [1, 0], 0.5)
+    repeated.self_novelty = 0.0
+    fresh = _candidate(1, [0, 1], 0.5)
+    fresh.self_novelty = 1.0
+    result = select_candidates([repeated, fresh], 1, spread=0, drift=0, self_novelty_weight=0.05)
+    assert result.selected[0].index == 1

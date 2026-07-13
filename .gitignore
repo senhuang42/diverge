@@ -9,4 +9,5 @@ models/
 runs/
 choices.jsonl
 data/cc0/
+plugin/build/
 .coverage

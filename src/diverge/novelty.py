@@ -36,11 +36,14 @@ def recent_kept_embeddings(
     path = Path(choices_path)
     if not path.exists():
         return None
-    rows = []
+    latest = {}
     for line in path.read_text().splitlines():
         row = json.loads(line)
-        if row.get("label") == "keep" and "embedding" in row:
-            rows.append(row["embedding"])
+        if row.get("path") and row.get("label") in {"keep", "discard"}:
+            latest[row["path"]] = row
+    rows = [
+        row["embedding"] for row in latest.values() if row["label"] == "keep" and "embedding" in row
+    ]
     return np.asarray(rows[-limit:], dtype=np.float32) if rows else None
 
 

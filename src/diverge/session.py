@@ -72,7 +72,9 @@ def run_session(
     source_lock_features = prepare_lock_source(source, source_embedding, sr)
     ref_fit = np.clip((candidate_embeddings @ style_embedding + 1) / 2, 0, 1)
     novelty = novelty_scores(candidate_embeddings, config.library_index)
-    self_novelty = self_novelty_scores(candidate_embeddings, recent_kept_embeddings())
+    self_novelty = self_novelty_scores(
+        candidate_embeddings, recent_kept_embeddings(config.choices_path)
+    )
     taste = taste_scores(candidate_embeddings, config.critic_model)
     candidates = []
     for index, (audio, embedding) in enumerate(zip(generated, candidate_embeddings, strict=True)):
@@ -97,7 +99,12 @@ def run_session(
             )
         )
     result = select_candidates(
-        candidates, config.n_return, config.spread, config.drift, config.lock_threshold
+        candidates,
+        config.n_return,
+        config.spread,
+        config.drift,
+        config.lock_threshold,
+        config.self_novelty_weight,
     )
     records = []
     winner_embeddings = []

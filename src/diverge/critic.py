@@ -53,6 +53,10 @@ def load_choices(path: str | Path = "choices.jsonl") -> tuple[np.ndarray, np.nda
     )
 
 
+def choice_count(path: str | Path = "choices.jsonl") -> int:
+    return int(len(load_choices(path)[1]))
+
+
 def train_critic(
     choices_path: str | Path = "choices.jsonl", model_path: str | Path = "models/critic.joblib"
 ) -> dict[str, float | int | bool]:

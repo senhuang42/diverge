@@ -8,7 +8,7 @@ from pathlib import Path
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 from .config import RunConfig  # noqa: E402
-from .critic import add_choice, train_critic  # noqa: E402
+from .critic import add_choice, choice_count, train_critic  # noqa: E402
 from .embed import Embedder  # noqa: E402
 from .generator import MockGenerator, StableAudioGenerator  # noqa: E402
 from .session import run_session  # noqa: E402
@@ -41,6 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--n-oversample", type=int)
     run.add_argument("--library-index", type=Path)
     run.add_argument("--critic-model", type=Path)
+    run.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     run.add_argument("--style-hint", default="")
     run.add_argument("--output-dir", type=Path, default=Path("runs"))
     run.add_argument("--models-dir", type=Path, default=Path("models"))
@@ -57,6 +58,8 @@ def _parser() -> argparse.ArgumentParser:
     train = critic_commands.add_parser("train")
     train.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     train.add_argument("--model", type=Path, default=Path("models/critic.joblib"))
+    status = critic_commands.add_parser("status")
+    status.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     return parser
 
 
@@ -80,6 +83,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         seed=args.seed,
         library_index=args.library_index,
         critic_model=args.critic_model,
+        choices_path=args.choices,
         style_text_hint=args.style_hint,
         fast=args.fast,
         generation_batch_size=args.batch_size or 8,
@@ -94,8 +98,10 @@ def main(argv: list[str] | None = None) -> int:
             embedding = Embedder().embed_file(args.wav)
             add_choice(args.wav, embedding, args.label, args.choices)
             print(f"recorded {args.label}: {args.wav}")
-        else:
+        elif args.critic_command == "train":
             print(json.dumps(train_critic(args.choices, args.model), indent=2))
+        else:
+            print(json.dumps({"n": choice_count(args.choices)}))
         return 0
     config = _config(args)
     generator = (

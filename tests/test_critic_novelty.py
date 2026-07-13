@@ -2,8 +2,15 @@ from pathlib import Path
 
 import numpy as np
 
-from diverge.critic import MIN_LABELS, add_choice, load_choices, taste_scores, train_critic
-from diverge.novelty import build_index, novelty_scores
+from diverge.critic import (
+    MIN_LABELS,
+    add_choice,
+    choice_count,
+    load_choices,
+    taste_scores,
+    train_critic,
+)
+from diverge.novelty import build_index, novelty_scores, recent_kept_embeddings
 
 
 def test_critic_stays_uninformative_then_trains(tmp_path: Path) -> None:
@@ -29,6 +36,19 @@ def test_critic_uses_latest_label_for_repeated_candidate(tmp_path: Path) -> None
     x, y = load_choices(choices)
     assert x.shape == (1, 512)
     assert y.tolist() == [0]
+    assert choice_count(choices) == 1
+
+
+def test_recent_keeps_respects_latest_decision(tmp_path: Path) -> None:
+    choices = tmp_path / "choices.jsonl"
+    first = np.eye(512, dtype=np.float32)[0]
+    second = np.eye(512, dtype=np.float32)[1]
+    add_choice("changed.wav", first, "keep", choices)
+    add_choice("changed.wav", first, "discard", choices)
+    add_choice("kept.wav", second, "keep", choices)
+    recent = recent_kept_embeddings(choices)
+    assert recent is not None
+    np.testing.assert_array_equal(recent, second[None, :])
 
 
 def test_novelty_is_distance_from_library(tmp_path: Path) -> None:

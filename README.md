@@ -6,7 +6,8 @@ and a taste critic trained from local keep/discard decisions.
 
 ## Status
 
-Phase 1 pipeline accepted; Phase 2 plugin work is next. Model weights and user audio never enter version control.
+The Phase 1 pipeline, JUCE AU/VST3/Standalone shell, and Phase 3 taste loop are implemented.
+Model weights and user audio never enter version control.
 Runtime inference is local; only `scripts/download_models.py` makes network requests.
 
 ## Quick start
@@ -34,6 +35,8 @@ Review a completed batch locally with clickable map points, numbered navigation,
 ```bash
 uv run python -m review.app runs/<timestamp>
 ```
+
+The JUCE plugin build and host workflow are documented in [plugin/README.md](plugin/README.md).
 
 All audio is loaded and written as 44.1 kHz stereo float WAV. Outputs live under `runs/`.
 

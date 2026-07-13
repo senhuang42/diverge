@@ -32,17 +32,21 @@ def spread_lambda(spread: int) -> float:
     return round(1.5 * normalized**2, 6)
 
 
-def _utility(candidate: Candidate, drift: int) -> tuple[float, dict[str, float]]:
+def _utility(
+    candidate: Candidate, drift: int, self_novelty_weight: float
+) -> tuple[float, dict[str, float]]:
     weights = {
         "ref_fit": 0.5,
         "taste": 0.3,
         "novelty": round(0.2 * (1 + drift / 100) * (drift / 100), 6),
+        "self_novelty": round(self_novelty_weight, 6),
     }
     value = sum(
         (
             candidate.ref_fit * weights["ref_fit"],
             candidate.taste * weights["taste"],
             candidate.novelty * weights["novelty"],
+            candidate.self_novelty * weights["self_novelty"],
         )
     )
     return round(float(value), 8), weights
@@ -54,11 +58,12 @@ def select_candidates(
     spread: int,
     drift: int,
     lock_threshold: float = 0.55,
+    self_novelty_weight: float = 0.05,
 ) -> SelectionResult:
     if len(candidates) < n_return:
         raise ValueError("not enough candidates")
     for candidate in candidates:
-        candidate.utility, weights = _utility(candidate, drift)
+        candidate.utility, weights = _utility(candidate, drift, self_novelty_weight)
     threshold = lock_threshold
     relaxations: list[float] = []
     survivors = [c for c in candidates if c.lock_score >= threshold]

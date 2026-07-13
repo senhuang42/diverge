@@ -40,3 +40,15 @@
   filename prompt `ref a`. The real adapter now follows the model card, loop-fills short source
   audio, and accepts an explicit `style_text_hint`. `--fast` remains accepted but Open Small's
   official eight-step path is already its optimized inference path.
+- JUCE is pinned to 8.0.9 with CMake FetchContent. The local Apple Silicon build produces
+  AU, VST3, and Standalone artifacts with ad-hoc signatures; `auval -v aufx Dvge Snhg`
+  passes. Distribution still requires an Apple Developer ID Application certificate,
+  hardened runtime signing, `xcrun notarytool submit`, and `xcrun stapler staple` for each
+  packaged artifact. Those credentials are intentionally outside the repo.
+- The plugin compiles the current checkout path as a development default for Python/models/
+  runs, while persisting user overrides in plugin state. A redistributed build should bundle
+  a relocatable runtime or add a first-run locator instead of relying on that development
+  path.
+- The choices history is also an explicit persisted plugin/config path. This avoids silently
+  losing taste and anti-repetition behavior when a DAW launches with an unrelated working
+  directory.

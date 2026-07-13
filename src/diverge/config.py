@@ -22,10 +22,12 @@ class RunConfig:
     seed: int = 0
     library_index: Path | None = None
     critic_model: Path | None = None
+    choices_path: Path = Path("choices.jsonl")
     style_text_hint: str = ""
     lock_threshold: float = 0.55
     fast: bool = False
     generation_batch_size: int = 8
+    self_novelty_weight: float = 0.05
     output_dir: Path = Path("runs")
 
     def __post_init__(self) -> None:
@@ -49,6 +51,8 @@ class RunConfig:
             raise ValueError("duration_s must be in (0, 30]")
         if not 0 <= self.lock_threshold <= 1:
             raise ValueError("lock_threshold must be in 0..1")
+        if not 0 <= self.self_novelty_weight <= 1:
+            raise ValueError("self_novelty_weight must be in 0..1")
         if self.references:
             if any(not 0 <= weight <= 1 for _, weight in self.references):
                 raise ValueError("reference weights must be in 0..1")
@@ -64,6 +68,7 @@ class RunConfig:
             self.references = normalized
         self.library_index = Path(self.library_index) if self.library_index else None
         self.critic_model = Path(self.critic_model) if self.critic_model else None
+        self.choices_path = Path(self.choices_path)
         self.output_dir = Path(self.output_dir)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,7 +76,7 @@ class RunConfig:
         result["source"] = str(self.source)
         result["references"] = [[str(p), w] for p, w in self.references]
         result["locks"] = sorted(self.locks)
-        for key in ("library_index", "critic_model", "output_dir"):
+        for key in ("library_index", "critic_model", "choices_path", "output_dir"):
             result[key] = str(result[key]) if result[key] is not None else None
         return result
 
