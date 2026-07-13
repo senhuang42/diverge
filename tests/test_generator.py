@@ -1,6 +1,6 @@
 import numpy as np
 
-from diverge.generator import MockGenerator, transform_to_noise
+from diverge.generator import MockGenerator, fit_source_duration, transform_to_noise
 
 
 def test_transform_mapping_is_monotonic() -> None:
@@ -18,3 +18,10 @@ def test_mock_generator_is_deterministic_and_audible() -> None:
     assert len(first) == 2
     np.testing.assert_array_equal(first, second)
     assert all(np.sqrt(np.mean(item**2)) > 0.01 for item in first)
+
+
+def test_short_stereo_source_is_looped_without_crossing_channels() -> None:
+    source = np.asarray([[1, 2, 3], [10, 20, 30]], dtype=np.float32)
+    fitted = fit_source_duration(source, 8)
+    np.testing.assert_array_equal(fitted[0], [1, 2, 3, 1, 2, 3, 1, 2])
+    np.testing.assert_array_equal(fitted[1], [10, 20, 30, 10, 20, 30, 10, 20])

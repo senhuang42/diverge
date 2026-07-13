@@ -22,6 +22,7 @@ class RunConfig:
     seed: int = 0
     library_index: Path | None = None
     critic_model: Path | None = None
+    style_text_hint: str = ""
     lock_threshold: float = 0.55
     fast: bool = False
     output_dir: Path = Path("runs")

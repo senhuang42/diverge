@@ -18,8 +18,17 @@ from .select import Candidate, select_candidates
 
 
 def _style_hint(config: RunConfig) -> str:
-    names = [path.stem.replace("_", " ").replace("-", " ") for path, _ in config.references]
-    return ", ".join(names) or "instrumental music loop"
+    if config.style_text_hint.strip():
+        return config.style_text_hint.strip()
+    ignored = {"a", "audio", "ref", "reference", "sample", "track"}
+    names = []
+    for path, _ in config.references:
+        words = path.stem.lower().replace("_", " ").replace("-", " ").split()
+        useful = [word for word in words if word not in ignored and not word.isdigit()]
+        if useful:
+            names.append(" ".join(useful))
+    details = f", {', '.join(names)}" if names else ""
+    return f"clean polished instrumental production loop{details}"
 
 
 def run_session(
@@ -105,6 +114,7 @@ def run_session(
     manifest = {
         "config": config.to_dict(),
         "model_ids": {"embedder": embedder.model_id, "generator": type(generator).__name__},
+        "generator_settings": getattr(generator, "inference_settings", {}),
         "calibration": {
             "transform_noise": {
                 "min": 0.1,

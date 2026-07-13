@@ -19,6 +19,16 @@ def transform_to_noise(transform: int) -> float:
     )
 
 
+def fit_source_duration(source: np.ndarray, samples: int) -> np.ndarray:
+    source_array = np.asarray(source, dtype=np.float32)
+    if source_array.ndim == 1:
+        source_array = np.stack([source_array, source_array])
+    if source_array.shape[-1] < samples:
+        repeats = int(np.ceil(samples / source_array.shape[-1]))
+        source_array = np.tile(source_array, (1, repeats))
+    return source_array[:, :samples].copy()
+
+
 class GeneratorProtocol(Protocol):
     def generate(
         self,
@@ -51,10 +61,7 @@ class MockGenerator:
     ) -> list[np.ndarray]:
         del style_embedding, style_text_hint
         samples = max(1, round(duration_s * sr))
-        source = np.asarray(source, dtype=np.float32)
-        if source.ndim == 1:
-            source = np.stack([source, source])
-        source = np.resize(source, (2, samples))
+        source = fit_source_duration(source, samples)
         mix = np.clip(transform / 100, 0.0, 1.0)
         output = []
         for offset in range(n):
@@ -80,11 +87,17 @@ class StableAudioGenerator:
 
     def __init__(self, models_dir: str | Path = "models", *, fast: bool = False) -> None:
         os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         self.models_dir = Path(models_dir)
         self.fast = fast
         self._model = None
         self._config = None
         self.progress = print
+        self.inference_settings = {
+            "steps": 8,
+            "cfg_scale": 1.0,
+            "sampler_type": "pingpong",
+        }
 
     def _load(self):
         if self._model is not None:
@@ -149,7 +162,8 @@ class StableAudioGenerator:
         device = next(model.parameters()).device
         target_sr = int(config["sample_rate"])
         sample_size = min(int(config["sample_size"]), round(duration_s * target_sr))
-        init = torch.from_numpy(np.asarray(source)).to(device=device, dtype=torch.float32)
+        source_array = fit_source_duration(source, sample_size)
+        init = torch.from_numpy(source_array.copy()).to(device=device, dtype=torch.float32)
         params = inspect.signature(generate_diffusion_cond).parameters
         if "init_audio" not in params or "init_noise_level" not in params:
             raise RuntimeError(
@@ -164,14 +178,15 @@ class StableAudioGenerator:
         for index in range(n):
             kwargs = dict(
                 model=model,
-                steps=8 if self.fast else 50,
-                cfg_scale=6.0,
+                steps=self.inference_settings["steps"],
+                cfg_scale=self.inference_settings["cfg_scale"],
                 conditioning_tensors=conditioning_tensors,
                 sample_size=sample_size,
                 seed=seed + index,
                 device=device,
                 init_audio=(sr, init),
                 init_noise_level=float(transform_to_noise(transform)),
+                sampler_type=self.inference_settings["sampler_type"],
             )
             audio = generate_diffusion_cond(**kwargs)
             array = audio.detach().float().cpu().numpy()

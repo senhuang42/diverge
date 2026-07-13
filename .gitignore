@@ -8,5 +8,5 @@ __pycache__/
 models/
 runs/
 choices.jsonl
+data/cc0/
 .coverage
-

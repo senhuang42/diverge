@@ -32,3 +32,9 @@
   default ceiling. The implementation preserves the required independent `seed+i` loop;
   opt-in microbatching is the clearest future speed path but would need a batched seeded-noise
   adapter and peak-memory testing to preserve reproducibility.
+- Initial real calibration accidentally used generic Stable Audio settings (`cfg_scale=6`,
+  Euler) instead of Open Small's published 8-step settings (`cfg_scale=1`, `pingpong`). It
+  also let stable-audio-tools zero-pad a 2-second source to 8 seconds and used the meaningless
+  filename prompt `ref a`. The real adapter now follows the model card, loop-fills short source
+  audio, and accepts an explicit `style_text_hint`. `--fast` remains accepted but Open Small's
+  official eight-step path is already its optimized inference path.

@@ -41,6 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--n-oversample", type=int, default=32)
     run.add_argument("--library-index", type=Path)
     run.add_argument("--critic-model", type=Path)
+    run.add_argument("--style-hint", default="")
     run.add_argument("--output-dir", type=Path, default=Path("runs"))
     run.add_argument("--models-dir", type=Path, default=Path("models"))
     run.add_argument("--fast", action="store_true")
@@ -78,6 +79,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
         seed=args.seed,
         library_index=args.library_index,
         critic_model=args.critic_model,
+        style_text_hint=args.style_hint,
         fast=args.fast,
         output_dir=args.output_dir,
     )
