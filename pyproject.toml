@@ -31,7 +31,7 @@ dev = ["pytest==8.4.1", "ruff==0.12.4"]
 diverge = "diverge.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/diverge"]
+packages = ["src/diverge", "review"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
