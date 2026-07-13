@@ -55,6 +55,7 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("wav", type=Path)
     add.add_argument("label", choices=("keep", "discard"))
     add.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
+    add.add_argument("--models-dir", type=Path, default=Path("models"))
     train = critic_commands.add_parser("train")
     train.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     train.add_argument("--model", type=Path, default=Path("models/critic.joblib"))
@@ -95,7 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "critic":
         if args.critic_command == "add":
-            embedding = Embedder().embed_file(args.wav)
+            embedding = Embedder(model_path=args.models_dir / "clap-htsat-unfused").embed_file(
+                args.wav
+            )
             add_choice(args.wav, embedding, args.label, args.choices)
             print(f"recorded {args.label}: {args.wav}")
         elif args.critic_command == "train":
@@ -111,7 +114,11 @@ def main(argv: list[str] | None = None) -> int:
             args.models_dir, fast=config.fast, batch_size=config.generation_batch_size
         )
     )
-    output = run_session(config, generator, Embedder())
+    output = run_session(
+        config,
+        generator,
+        Embedder(model_path=args.models_dir / "clap-htsat-unfused"),
+    )
     print(output)
     return 0
 

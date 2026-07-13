@@ -459,7 +459,8 @@ void DivergeAudioProcessorEditor::recordDecision(const juce::String& label)
 {
     if (selectedCandidate <= 0) return;
     runCriticCommand({ "add", candidates[static_cast<size_t>(selectedCandidate - 1)].getFullPathName(),
-                       label, "--choices", choicesFile().getFullPathName() });
+                       label, "--choices", choicesFile().getFullPathName(), "--models-dir",
+                       modelsEditor.getText().trim() });
     candidateDetail.setText("Candidate " + juce::String(selectedCandidate) + " · " + label, juce::dontSendNotification);
 }
 
