@@ -25,6 +25,7 @@ class RunConfig:
     style_text_hint: str = ""
     lock_threshold: float = 0.55
     fast: bool = False
+    generation_batch_size: int = 8
     output_dir: Path = Path("runs")
 
     def __post_init__(self) -> None:
@@ -42,6 +43,8 @@ class RunConfig:
             raise ValueError(f"unknown locks: {sorted(self.locks - LOCKS)}")
         if self.n_return < 1 or self.n_oversample < self.n_return:
             raise ValueError("n_oversample must be >= n_return >= 1")
+        if self.generation_batch_size < 1:
+            raise ValueError("generation_batch_size must be >= 1")
         if not 0 < self.duration_s <= 30:
             raise ValueError("duration_s must be in (0, 30]")
         if not 0 <= self.lock_threshold <= 1:

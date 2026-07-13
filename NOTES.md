@@ -4,14 +4,14 @@
   `laion_clap` packaging friction on Apple Silicon and is used consistently throughout.
   Project audio remains 44.1 kHz; the wrapper resamples a private inference copy to CLAP's
   required 48 kHz input rate.
-- Transform calibration is currently the monotonic mapping `0..100 -> 0.10..1.00`. Values
-  10 and 90 therefore map to 0.19 and 0.91. Human listening calibration is required at the
-  milestone-4 STOP before this mapping is considered perceptually calibrated.
+- Transform uses the monotonic mapping `0..100 -> 0.10..1.00`. Values 10 and 90 therefore
+  map to 0.19 and 0.91. Human listening on real CC0 drum/guitar material accepted the
+  transform behavior after short sources were loop-filled instead of zero-padded.
 - Spread maps quadratically from `0..100 -> 0..1.5`, giving finer control near zero while
   retaining strong farthest-point pressure at the top. A linear map made spread 10 dominate
   small utility differences and selected seven of the same eight files as spread 90 in the
-  first real calibration pool. Human listening confirmation is still required at the
-  milestone-4 STOP.
+  first real calibration pool. Human listening accepted the corrected spread-90 batch as
+  materially more varied than spread 10.
 - Stable Audio model code is imported lazily. The loader uses the local checkpoint written by
   the download script and never permits an inference-time model download.
   Stable Audio's T5 Base text conditioner is downloaded by the same script and its config is
@@ -27,11 +27,13 @@
 - MPS inference uses fp32 first for reliability. If the installed stable-audio-tools API
   differs, the adapter fails with an actionable version/API error instead of silently using
   another model.
-- On the development Apple Silicon Mac, the full 32-to-8, 8-second `--fast` run measured
-  5:03.56. This misses the spec's `<90 s` fast target and narrowly misses the five-minute
-  default ceiling. The implementation preserves the required independent `seed+i` loop;
-  opt-in microbatching is the clearest future speed path but would need a batched seeded-noise
-  adapter and peak-memory testing to preserve reproducibility.
+- The real sampler constructs deterministic per-item `seed+i` noise and denoises eight
+  candidates per MPS microbatch. Latent decoding is split into pairs because decoding a
+  large batch causes severe MPS memory pressure. Source onset/chroma features are cached
+  across candidate lock scoring. On the development Apple Silicon Mac, the exact default
+  32-to-8, 8-second acceptance run measured 3:04.13 (under the five-minute gate). `--fast`
+  uses four steps and a 16-candidate pool by default and measured 87.01 seconds (under the
+  90-second gate); an explicit `--n-oversample` overrides the fast pool size.
 - Initial real calibration accidentally used generic Stable Audio settings (`cfg_scale=6`,
   Euler) instead of Open Small's published 8-step settings (`cfg_scale=1`, `pingpong`). It
   also let stable-audio-tools zero-pad a 2-second source to 8 seconds and used the meaningless

@@ -85,19 +85,95 @@ class StableAudioGenerator:
     MODEL_ID = "stabilityai/stable-audio-open-small"
     emits_progress = True
 
-    def __init__(self, models_dir: str | Path = "models", *, fast: bool = False) -> None:
+    def __init__(
+        self,
+        models_dir: str | Path = "models",
+        *,
+        fast: bool = False,
+        batch_size: int = 8,
+    ) -> None:
         os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         self.models_dir = Path(models_dir)
         self.fast = fast
+        self.batch_size = max(1, batch_size)
         self._model = None
         self._config = None
         self.progress = print
         self.inference_settings = {
-            "steps": 8,
+            "steps": 4 if fast else 8,
             "cfg_scale": 1.0,
             "sampler_type": "pingpong",
+            "batch_size": self.batch_size,
         }
+
+    @staticmethod
+    def _generate_seed_batch(
+        model,
+        conditioning_tensors: dict,
+        init,
+        init_sr: int,
+        sample_size: int,
+        seeds: list[int],
+        noise_level: float,
+        settings: dict,
+    ):
+        """Pinned stable-audio-tools sampler path with deterministic per-item seeds."""
+        import torch
+        from stable_audio_tools.inference.generation import prepare_audio, sample_rf
+
+        device = next(model.parameters()).device
+        latent_size = sample_size
+        if model.pretransform is not None:
+            latent_size //= model.pretransform.downsampling_ratio
+        noise_parts = []
+        for seed in seeds:
+            torch.manual_seed(seed)
+            noise_parts.append(torch.randn([1, model.io_channels, latent_size], device=device))
+        noise = torch.cat(noise_parts)
+        conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
+        prepared = prepare_audio(
+            init,
+            in_sr=init_sr,
+            target_sr=model.sample_rate,
+            target_length=sample_size,
+            target_channels=(
+                model.pretransform.io_channels
+                if model.pretransform is not None
+                else model.io_channels
+            ),
+            device=device,
+        )
+        if model.pretransform is not None:
+            prepared = model.pretransform.encode(prepared)
+        prepared = prepared.repeat(len(seeds), 1, 1)
+        model_dtype = next(model.model.parameters()).dtype
+        noise = noise.to(model_dtype)
+        prepared = prepared.to(model_dtype)
+        conditioning_inputs = {
+            key: value.to(model_dtype) if value is not None else value
+            for key, value in conditioning_inputs.items()
+        }
+        sampled = sample_rf(
+            model.model,
+            noise,
+            init_data=prepared,
+            steps=settings["steps"],
+            sampler_type=settings["sampler_type"],
+            sigma_max=noise_level,
+            dist_shift=model.dist_shift,
+            cfg_scale=settings["cfg_scale"],
+            batch_cfg=True,
+            rescale_cfg=True,
+            device=device,
+            **conditioning_inputs,
+        )
+        if model.pretransform is not None:
+            sampled = sampled.to(next(model.pretransform.parameters()).dtype)
+            sampled = torch.cat(
+                [model.pretransform.decode(chunk) for chunk in sampled.split(2)], dim=0
+            )
+        return sampled
 
     def _load(self):
         if self._model is not None:
@@ -169,27 +245,40 @@ class StableAudioGenerator:
             raise RuntimeError(
                 "stable-audio-tools 0.0.19 lacks the required SDEdit API; see NOTES.md"
             )
-        conditioning = [
-            {"prompt": style_text_hint, "seconds_start": 0, "seconds_total": duration_s}
-        ]
-        with torch.inference_mode():
-            conditioning_tensors = model.conditioner(conditioning, device)
         outputs: list[np.ndarray] = []
-        for index in range(n):
-            kwargs = dict(
-                model=model,
-                steps=self.inference_settings["steps"],
-                cfg_scale=self.inference_settings["cfg_scale"],
-                conditioning_tensors=conditioning_tensors,
-                sample_size=sample_size,
-                seed=seed + index,
-                device=device,
-                init_audio=(sr, init),
-                init_noise_level=float(transform_to_noise(transform)),
-                sampler_type=self.inference_settings["sampler_type"],
-            )
-            audio = generate_diffusion_cond(**kwargs)
-            array = audio.detach().float().cpu().numpy()
-            outputs.append(np.squeeze(array, axis=0) if array.ndim == 3 else array)
-            self.progress(f"PROGRESS {index + 1}/{n}")
+        index = 0
+        active_batch_size = min(self.batch_size, n)
+        while index < n:
+            size = min(active_batch_size, n - index)
+            seeds = list(range(seed + index, seed + index + size))
+            conditioning = [
+                {"prompt": style_text_hint, "seconds_start": 0, "seconds_total": duration_s}
+                for _ in seeds
+            ]
+            try:
+                with torch.inference_mode():
+                    conditioning_tensors = model.conditioner(conditioning, device)
+                    audio = self._generate_seed_batch(
+                        model,
+                        conditioning_tensors,
+                        init,
+                        sr,
+                        sample_size,
+                        seeds,
+                        float(transform_to_noise(transform)),
+                        self.inference_settings,
+                    )
+            except RuntimeError as exc:
+                if size == 1 or "out of memory" not in str(exc).lower():
+                    raise
+                active_batch_size = max(1, size // 2)
+                if hasattr(torch, "mps"):
+                    torch.mps.empty_cache()
+                self.progress(f"BATCH_RETRY {size}->{active_batch_size}")
+                continue
+            arrays = audio.detach().float().cpu().numpy()
+            outputs.extend(arrays)
+            index += size
+            for completed in range(index - size + 1, index + 1):
+                self.progress(f"PROGRESS {completed}/{n}")
         return outputs

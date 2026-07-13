@@ -28,7 +28,10 @@ def chroma(y: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
 
 
 def groove_similarity(a: np.ndarray, b: np.ndarray, sr: int = SAMPLE_RATE) -> float:
-    x, y = onset_envelope(a, sr), onset_envelope(b, sr)
+    return groove_similarity_envelopes(onset_envelope(a, sr), onset_envelope(b, sr), sr)
+
+
+def groove_similarity_envelopes(x: np.ndarray, y: np.ndarray, sr: int = SAMPLE_RATE) -> float:
     length = min(len(x), len(y))
     if length == 0:
         return 0.0
@@ -50,7 +53,10 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def melody_similarity(a: np.ndarray, b: np.ndarray, sr: int = SAMPLE_RATE) -> float:
-    ca, cb = chroma(a, sr), chroma(b, sr)
+    return melody_similarity_chroma(chroma(a, sr), chroma(b, sr))
+
+
+def melody_similarity_chroma(ca: np.ndarray, cb: np.ndarray) -> float:
     global_score = _cosine(ca.mean(axis=1), cb.mean(axis=1))
     frames = min(ca.shape[1], cb.shape[1])
     if frames == 0:

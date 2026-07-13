@@ -11,7 +11,7 @@ from .config import RunConfig
 from .critic import taste_scores
 from .embed import Embedder
 from .generator import GeneratorProtocol, transform_to_noise
-from .locks import active_lock_score, lock_similarities
+from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
 from .novelty import novelty_scores, recent_kept_embeddings, self_novelty_scores
 from .select import Candidate, select_candidates
@@ -69,13 +69,21 @@ def run_session(
         staging_paths.append(save_audio(staging / f"raw_{index:03d}.wav", audio, sr))
     candidate_embeddings = embedder.embed_batch(staging_paths)
     source_embedding = embedder.embed_file(config.source)
+    source_lock_features = prepare_lock_source(source, source_embedding, sr)
     ref_fit = np.clip((candidate_embeddings @ style_embedding + 1) / 2, 0, 1)
     novelty = novelty_scores(candidate_embeddings, config.library_index)
     self_novelty = self_novelty_scores(candidate_embeddings, recent_kept_embeddings())
     taste = taste_scores(candidate_embeddings, config.critic_model)
     candidates = []
     for index, (audio, embedding) in enumerate(zip(generated, candidate_embeddings, strict=True)):
-        similarities = lock_similarities(audio, source, embedding, source_embedding, sr)
+        similarities = lock_similarities(
+            audio,
+            source,
+            embedding,
+            source_embedding,
+            sr,
+            source_features=source_lock_features,
+        )
         candidates.append(
             Candidate(
                 index=index,

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from diverge.audio_io import load_audio, save_audio
+from diverge.cli import _config, _parser
 from diverge.config import RunConfig
 
 
@@ -11,6 +12,20 @@ def test_config_normalizes_references_and_roundtrips(tmp_path: Path) -> None:
     config = RunConfig(Path("source.wav"), [(Path("a.wav"), 0.2), (Path("b.wav"), 0.6)])
     assert [weight for _, weight in config.references] == pytest.approx([0.25, 0.75])
     assert RunConfig.from_json(config.to_json()).to_dict() == config.to_dict()
+
+
+def test_config_rejects_invalid_generation_batch_size(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="generation_batch_size"):
+        RunConfig(source=tmp_path / "source.wav", references=[], generation_batch_size=0)
+
+
+def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
+    fast = _config(_parser().parse_args(["run", "--source", "source.wav", "--fast"]))
+    overridden = _config(
+        _parser().parse_args(["run", "--source", "source.wav", "--fast", "--n-oversample", "24"])
+    )
+    assert fast.n_oversample == 16
+    assert overridden.n_oversample == 24
 
 
 def test_audio_is_resampled_stereo_float(tmp_path: Path) -> None:
