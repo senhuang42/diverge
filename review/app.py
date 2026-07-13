@@ -65,10 +65,12 @@ def render_map_html(points: list[dict], width: int = 720, height: int = 420) -> 
         else:
             rank = int(point.get("rank", 0))
             shape = (
+                f'<a href="#candidate-{rank}" data-candidate-rank="{rank}" '
+                f'aria-label="Review candidate {rank}">'
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" fill="#0ea5e9">'
                 f"<title>{title}</title></circle>"
                 f'<text x="{x:.1f}" y="{y + 4:.1f}" text-anchor="middle" '
-                f'font-size="11" fill="white">{rank}</text>'
+                f'font-size="11" fill="white" pointer-events="none">{rank}</text></a>'
             )
         shapes.append(shape)
     return (
@@ -78,6 +80,26 @@ def render_map_html(points: list[dict], width: int = 720, height: int = 420) -> 
         + "".join(shapes)
         + "</svg><p>● source &nbsp; ■ reference &nbsp; "
         + "<span style='color:#0ea5e9'>●</span> candidates</p></div>"
+    )
+
+
+def render_navigation_html(candidates: list[dict]) -> str:
+    links = "".join(
+        f'<a href="#candidate-{int(candidate["rank"])}" '
+        f'data-candidate-rank="{int(candidate["rank"])}">{int(candidate["rank"])}</a>'
+        for candidate in candidates
+    )
+    return f'<nav class="candidate-nav" aria-label="Candidate navigation">{links}</nav>'
+
+
+def render_candidate_navigation(rank: int, count: int) -> str:
+    previous = max(1, rank - 1)
+    following = min(count, rank + 1)
+    return (
+        '<nav class="candidate-step-nav">'
+        f'<a href="#candidate-{previous}" data-candidate-rank="{previous}">← Previous</a>'
+        f'<a href="#candidate-{following}" data-candidate-rank="{following}">Next →</a>'
+        "</nav>"
     )
 
 
@@ -122,8 +144,13 @@ KEYBOARD_JS = """
     items.forEach((item, i) => item.classList.toggle('keyboard-selected', i === selected));
     items[selected].scrollIntoView({behavior: 'smooth', block: 'center'});
   };
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-candidate-rank]');
+    if (link) select(Number(link.dataset.candidateRank) - 1);
+  });
   document.addEventListener('keydown', (event) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+    if (event.repeat) return;
     if (event.key === 'j') select(selected + 1);
     if (event.key === 'k') select(selected - 1);
     if (event.key === 'y') rows()[selected]?.querySelector('.keep-button')?.click();
@@ -135,8 +162,20 @@ KEYBOARD_JS = """
 
 CSS = """
 .diverge-map svg { width: 100%; max-height: 420px; }
-.candidate-row { border: 2px solid transparent; border-radius: 12px; padding: 8px; }
+.diverge-map a { cursor: pointer; }
+.candidate-nav { position: sticky; top: 8px; z-index: 20; display: flex; gap: 8px;
+  justify-content: center; padding: 10px; margin: 8px 0; border-radius: 12px;
+  background: color-mix(in srgb, var(--block-background-fill) 92%, transparent);
+  box-shadow: 0 4px 16px rgb(15 23 42 / 12%); backdrop-filter: blur(8px); }
+.candidate-nav a, .candidate-step-nav a { display: inline-flex; align-items: center;
+  justify-content: center; min-width: 42px; min-height: 42px; padding: 6px 12px;
+  border: 1px solid #38bdf8; border-radius: 999px; color: inherit; text-decoration: none; }
+.candidate-nav a:hover, .candidate-step-nav a:hover { background: #e0f2fe; }
+.candidate-row { scroll-margin-top: 90px; border: 2px solid transparent;
+  border-radius: 12px; padding: 8px; }
 .candidate-row.keyboard-selected { border-color: #0ea5e9; background: #f0f9ff; }
+.candidate-row:target { border-color: #0ea5e9; }
+.candidate-step-nav { display: flex; justify-content: space-between; margin-top: 8px; }
 """
 
 
@@ -157,10 +196,11 @@ def build_app(
             "Keyboard: **j/k** navigate, **y** keep, **n** discard."
         )
         gr.HTML(render_map_html(bundle.map_points))
+        gr.HTML(render_navigation_html(bundle.candidates))
         status = gr.Markdown("Ready.")
         for candidate in bundle.candidates:
             rank = int(candidate["rank"])
-            with gr.Group(elem_classes=["candidate-row"]):
+            with gr.Group(elem_id=f"candidate-{rank}", elem_classes=["candidate-row"]):
                 gr.Markdown(f"## Candidate {rank}\n{score_markdown(candidate)}")
                 gr.Audio(value=str(candidate_path(bundle, candidate)), label=f"Candidate {rank}")
                 with gr.Row():
@@ -178,6 +218,7 @@ def build_app(
                     ),
                     outputs=status,
                 )
+                gr.HTML(render_candidate_navigation(rank, len(bundle.candidates)))
         retrain = gr.Button("Retrain critic")
 
         def retrain_critic() -> str:

@@ -4,7 +4,13 @@ from pathlib import Path
 import numpy as np
 
 from diverge.audio_io import save_audio
-from review.app import load_bundle, record_choice, render_map_html, score_markdown
+from review.app import (
+    load_bundle,
+    record_choice,
+    render_map_html,
+    render_navigation_html,
+    score_markdown,
+)
 
 
 class FakeEmbedder:
@@ -40,6 +46,8 @@ def test_review_bundle_map_and_scores(tmp_path: Path) -> None:
     rendered = render_map_html(bundle.map_points)
     assert "Diverge embedding map" in rendered
     assert ">1</text>" in rendered
+    assert 'href="#candidate-1"' in rendered
+    assert 'data-candidate-rank="1"' in render_navigation_html(bundle.candidates)
     assert "Reference" in score_markdown(candidate)
 
 

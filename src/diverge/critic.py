@@ -43,6 +43,10 @@ def load_choices(path: str | Path = "choices.jsonl") -> tuple[np.ndarray, np.nda
     usable = [row for row in rows if "embedding" in row and row.get("label") in {"keep", "discard"}]
     if not usable:
         return np.empty((0, 512), dtype=np.float32), np.empty(0, dtype=np.int8)
+    latest = {}
+    for row in usable:
+        latest[row.get("path", row["embedding_hash"])] = row
+    usable = list(latest.values())
     return (
         np.asarray([row["embedding"] for row in usable], dtype=np.float32),
         np.asarray([row["label"] == "keep" for row in usable], dtype=np.int8),

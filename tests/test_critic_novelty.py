@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
-from diverge.critic import MIN_LABELS, add_choice, taste_scores, train_critic
+from diverge.critic import MIN_LABELS, add_choice, load_choices, taste_scores, train_critic
 from diverge.novelty import build_index, novelty_scores
 
 
@@ -19,6 +19,16 @@ def test_critic_stays_uninformative_then_trains(tmp_path: Path) -> None:
     assert result["trained"] is True
     scores = taste_scores(np.stack([np.eye(512)[0], -np.eye(512)[0]]), model)
     assert scores[0] > scores[1]
+
+
+def test_critic_uses_latest_label_for_repeated_candidate(tmp_path: Path) -> None:
+    choices = tmp_path / "choices.jsonl"
+    vector = np.eye(512, dtype=np.float32)[0]
+    add_choice("candidate.wav", vector, "keep", choices)
+    add_choice("candidate.wav", vector, "discard", choices)
+    x, y = load_choices(choices)
+    assert x.shape == (1, 512)
+    assert y.tolist() == [0]
 
 
 def test_novelty_is_distance_from_library(tmp_path: Path) -> None:
