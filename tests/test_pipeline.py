@@ -42,3 +42,19 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(manifest["candidates"]) == 3
     assert all(path.stat().st_size > 1_000 for path in waves)
+
+
+def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> None:
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[],
+        n_return=2,
+        n_oversample=3,
+        duration_s=0.25,
+        output_dir=tmp_path / "runs",
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+    run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
+    assert len(list(run_dir.glob("cand_*.wav"))) == 2

@@ -33,6 +33,7 @@ private:
     CompletionCallback completionCallback;
     std::atomic<bool> running { false };
     juce::String bufferedOutput;
+    juce::String diagnosticOutput;
     juce::Time jobStartedAt;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(JobRunner)

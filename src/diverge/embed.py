@@ -91,6 +91,8 @@ class Embedder:
 
     def embed_batch(self, paths: list[str | Path]) -> np.ndarray:
         paths = [Path(path) for path in paths]
+        if not paths:
+            return np.empty((0, 512), dtype=np.float32)
         result: list[np.ndarray | None] = [None] * len(paths)
         missing_audio: list[np.ndarray] = []
         missing_indexes: list[int] = []

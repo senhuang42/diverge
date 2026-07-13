@@ -29,3 +29,10 @@ def test_embedder_normalizes_batches_and_caches(tmp_path: Path) -> None:
     np.testing.assert_allclose(np.linalg.norm(first, axis=1), 1)
     np.testing.assert_allclose(first, second)
     assert backend.calls == 1
+
+
+def test_embedder_accepts_empty_batch(tmp_path: Path) -> None:
+    backend = CountingBackend()
+    embedder = Embedder(cache_dir=tmp_path, backend=backend, model_id="fake")
+    assert embedder.embed_batch([]).shape == (0, 512)
+    assert backend.calls == 0

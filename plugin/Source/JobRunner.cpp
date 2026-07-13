@@ -19,6 +19,7 @@ bool JobRunner::start(const juce::StringArray& command,
     progressCallback = std::move(progress);
     completionCallback = std::move(completion);
     bufferedOutput.clear();
+    diagnosticOutput.clear();
     jobStartedAt = juce::Time::getCurrentTime();
     startThread();
     return true;
@@ -35,6 +36,9 @@ void JobRunner::cancel()
 
 void JobRunner::publishOutput(const juce::String& chunk)
 {
+    diagnosticOutput += chunk;
+    if (diagnosticOutput.length() > 16384)
+        diagnosticOutput = diagnosticOutput.substring(diagnosticOutput.length() - 16384);
     bufferedOutput += chunk;
     auto lines = juce::StringArray::fromLines(bufferedOutput);
     if (!bufferedOutput.endsWithChar('\n') && lines.size() > 0)
@@ -93,7 +97,11 @@ void JobRunner::run()
         if (remaining.isNotEmpty())
             publishOutput(remaining + "\n");
         if (!threadShouldExit() && process.getExitCode() != 0)
-            error = "Diverge CLI exited with code " + juce::String(process.getExitCode()) + ".";
+        {
+            const auto lines = juce::StringArray::fromLines(diagnosticOutput.trim());
+            const auto detail = lines.isEmpty() ? juce::String("Unknown error") : lines[lines.size() - 1];
+            error = "Generation failed: " + detail;
+        }
     }
 
     const auto result = newestCompletedRun();
