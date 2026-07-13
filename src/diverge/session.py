@@ -37,6 +37,8 @@ def run_session(
         style_embedding /= max(float(np.linalg.norm(style_embedding)), 1e-12)
     else:
         style_embedding = embedder.embed_file(config.source)
+    if hasattr(generator, "progress"):
+        generator.progress = progress
     generated = generator.generate(
         source,
         sr,
@@ -53,7 +55,8 @@ def run_session(
     staging.mkdir(parents=True, exist_ok=False)
     staging_paths = []
     for index, audio in enumerate(generated):
-        progress(f"PROGRESS {index + 1}/{config.n_oversample}")
+        if not getattr(generator, "emits_progress", False):
+            progress(f"PROGRESS {index + 1}/{config.n_oversample}")
         staging_paths.append(save_audio(staging / f"raw_{index:03d}.wav", audio, sr))
     candidate_embeddings = embedder.embed_batch(staging_paths)
     source_embedding = embedder.embed_file(config.source)

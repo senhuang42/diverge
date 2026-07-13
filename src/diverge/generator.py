@@ -36,6 +36,8 @@ class GeneratorProtocol(Protocol):
 class MockGenerator:
     """Deterministic, musical-ish filtered-noise variants for weight-free tests."""
 
+    emits_progress = False
+
     def generate(
         self,
         source: np.ndarray,
@@ -74,6 +76,7 @@ class MockGenerator:
 
 class StableAudioGenerator:
     MODEL_ID = "stabilityai/stable-audio-open-small"
+    emits_progress = True
 
     def __init__(self, models_dir: str | Path = "models", *, fast: bool = False) -> None:
         os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
@@ -81,6 +84,7 @@ class StableAudioGenerator:
         self.fast = fast
         self._model = None
         self._config = None
+        self.progress = print
 
     def _load(self):
         if self._model is not None:
@@ -99,12 +103,27 @@ class StableAudioGenerator:
             )
         try:
             import torch
+            from stable_audio_tools.models.conditioners import T5Conditioner
             from stable_audio_tools.models.factory import create_model_from_config
             from stable_audio_tools.models.utils import load_ckpt_state_dict
         except ImportError as exc:
             raise RuntimeError("Install the real generator with: uv sync --extra real") from exc
         device = "mps" if torch.backends.mps.is_available() else "cpu"
         config = json.loads(config_path.read_text())
+        t5_dir = self.models_dir / "t5-base"
+        if not t5_dir.exists():
+            raise FileNotFoundError(
+                f"Missing {t5_dir}. Re-run scripts/download_models.py to install T5 locally."
+            )
+        for conditioner in config.get("model", {}).get("conditioning", {}).get("configs", []):
+            if conditioner.get("type") == "t5":
+                local_t5 = str(t5_dir.resolve())
+                conditioner["config"]["t5_model_name"] = local_t5
+                if local_t5 not in T5Conditioner.T5_MODELS:
+                    T5Conditioner.T5_MODELS.append(local_t5)
+                    T5Conditioner.T5_MODEL_DIMS[local_t5] = 768
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         model = create_model_from_config(config)
         model.load_state_dict(load_ckpt_state_dict(str(checkpoint)))
         model = model.to(device).float().eval()
@@ -130,23 +149,24 @@ class StableAudioGenerator:
         device = next(model.parameters()).device
         target_sr = int(config["sample_rate"])
         sample_size = min(int(config["sample_size"]), round(duration_s * target_sr))
-        init = (
-            torch.from_numpy(np.asarray(source)).unsqueeze(0).to(device=device, dtype=torch.float32)
-        )
+        init = torch.from_numpy(np.asarray(source)).to(device=device, dtype=torch.float32)
         params = inspect.signature(generate_diffusion_cond).parameters
         if "init_audio" not in params or "init_noise_level" not in params:
             raise RuntimeError(
                 "stable-audio-tools 0.0.19 lacks the required SDEdit API; see NOTES.md"
             )
+        conditioning = [
+            {"prompt": style_text_hint, "seconds_start": 0, "seconds_total": duration_s}
+        ]
+        with torch.inference_mode():
+            conditioning_tensors = model.conditioner(conditioning, device)
         outputs: list[np.ndarray] = []
         for index in range(n):
             kwargs = dict(
                 model=model,
                 steps=8 if self.fast else 50,
                 cfg_scale=6.0,
-                conditioning=[
-                    {"prompt": style_text_hint, "seconds_start": 0, "seconds_total": duration_s}
-                ],
+                conditioning_tensors=conditioning_tensors,
                 sample_size=sample_size,
                 seed=seed + index,
                 device=device,
@@ -156,4 +176,5 @@ class StableAudioGenerator:
             audio = generate_diffusion_cond(**kwargs)
             array = audio.detach().float().cpu().numpy()
             outputs.append(np.squeeze(array, axis=0) if array.ndim == 3 else array)
+            self.progress(f"PROGRESS {index + 1}/{n}")
         return outputs

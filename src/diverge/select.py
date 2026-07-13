@@ -28,7 +28,8 @@ class SelectionResult:
 
 
 def spread_lambda(spread: int) -> float:
-    return round(1.5 * np.clip(spread, 0, 100) / 100, 6)
+    normalized = np.clip(spread, 0, 100) / 100
+    return round(1.5 * normalized**2, 6)
 
 
 def _utility(candidate: Candidate, drift: int) -> tuple[float, dict[str, float]]:

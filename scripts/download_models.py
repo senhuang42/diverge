@@ -8,6 +8,7 @@ from huggingface_hub import snapshot_download
 
 STABLE_ID = "stabilityai/stable-audio-open-small"
 CLAP_ID = "laion/clap-htsat-unfused"
+T5_ID = "google-t5/t5-base"
 LICENSE_URL = "https://huggingface.co/stabilityai/stable-audio-open-small"
 
 
@@ -23,10 +24,24 @@ def main() -> None:
     print(f"License/terms: {LICENSE_URL}")
     snapshot_download(CLAP_ID, token=token, local_dir=root / "clap-htsat-unfused")
     snapshot_download(
+        T5_ID,
+        token=token,
+        local_dir=root / "t5-base",
+        allow_patterns=[
+            "model.safetensors",
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "spiece.model",
+        ],
+    )
+    snapshot_download(
         STABLE_ID,
         token=token,
         local_dir=root / "stable-audio-open-small",
-        allow_patterns=["*.ckpt", "*.json", "*.txt", "*.model", "*.safetensors"],
+        allow_patterns=["model.safetensors", "model_config.json", "base_model_config.json"],
     )
     print(f"Models downloaded under {root}")
 
