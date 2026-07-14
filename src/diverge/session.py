@@ -42,6 +42,26 @@ def run_session(
     *,
     progress=print,
 ) -> Path:
+    def report(message: str) -> None:
+        progress(message)
+        if message.startswith("PROGRESS "):
+            completed, total = message.removeprefix("PROGRESS ").split("/", maxsplit=1)
+            progress(
+                "DIVERGE_EVENT "
+                + json.dumps(
+                    {
+                        "stage": "creating",
+                        "completed": int(completed),
+                        "total": int(total),
+                    }
+                )
+            )
+
+    def stage(name: str) -> None:
+        progress(f"STAGE {name}")
+        progress("DIVERGE_EVENT " + json.dumps({"stage": name}))
+
+    stage("preparing")
     source, sr = load_audio(config.source)
     source_spectral, source_temporal = audio_descriptors(source, sr)
     source_category = (
@@ -69,7 +89,7 @@ def run_session(
     else:
         style_embedding = embedder.embed_file(config.source)
     if hasattr(generator, "progress"):
-        generator.progress = progress
+        generator.progress = report
     generated = generator.generate(
         source,
         sr,
@@ -87,8 +107,9 @@ def run_session(
     staging_paths = []
     for index, audio in enumerate(generated):
         if not getattr(generator, "emits_progress", False):
-            progress(f"PROGRESS {index + 1}/{config.n_oversample}")
+            report(f"PROGRESS {index + 1}/{config.n_oversample}")
         staging_paths.append(save_audio(staging / f"raw_{index:03d}.wav", audio, sr))
+    stage("comparing")
     candidate_embeddings = embedder.embed_batch(staging_paths)
     source_embedding = embedder.embed_file(config.source)
     source_lock_features = prepare_lock_source(source, source_embedding, sr)
@@ -159,6 +180,7 @@ def run_session(
                 taste_factors=predictions.factors[index],
             )
         )
+    stage("choosing")
     result = select_candidates(
         candidates,
         config.n_return,
@@ -247,4 +269,5 @@ def run_session(
     for path in staging_paths:
         path.unlink()
     staging.rmdir()
+    stage("ready")
     return run_dir

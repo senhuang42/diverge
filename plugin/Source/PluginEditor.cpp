@@ -157,6 +157,9 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
         card = std::make_unique<WaveformCard>(formatManager, thumbnailCache);
 
     configureUi();
+    const auto fixtureSize = juce::SystemStats::getEnvironmentVariable("DIVERGE_UI_SIZE", {}).toLowerCase();
+    if (fixtureSize == "minimum") setSize(900, 680);
+    else if (fixtureSize == "large") setSize(1440, 960);
     restoreSettings();
     if (!applyUiFixture())
     {
@@ -280,8 +283,10 @@ void DivergeAudioProcessorEditor::configureUi()
     directionCard->setAudio("Direction", "Add an optional reference", {});
     sourceCard->onChoose = [this] { chooseAudio(0); };
     sourceCard->onActivate = [this] { togglePreview(audioSlots[0], 0, true); };
+    sourceCard->onSeek = [this](double position) { seekPreview(audioSlots[0], position, 0, true); };
     directionCard->onChoose = [this] { chooseAudio(1); };
     directionCard->onActivate = [this] { togglePreview(audioSlots[1]); };
+    directionCard->onSeek = [this](double position) { seekPreview(audioSlots[1], position); };
     recordButton.onClick = [this] { toggleCapture(); };
     addDirectionButton.onClick = [this]
     {
@@ -352,6 +357,11 @@ void DivergeAudioProcessorEditor::configureUi()
         card.setAudio(juce::String(index + 1).paddedLeft('0', 2), "Waiting for audio", {});
         card.setDraggable(true);
         card.onActivate = [this, index] { selectCandidate(index + 1); };
+        card.onSeek = [this, index](double position)
+        {
+            selectCandidate(index + 1, false);
+            seekPreview(candidateCards[static_cast<size_t>(index)]->file(), position, index + 1);
+        };
         card.onDrag = [this, index]
         {
             selectCandidate(index + 1, false);
@@ -752,6 +762,18 @@ void DivergeAudioProcessorEditor::togglePreview(const juce::File& file, int cand
         playingCandidate = candidateRank;
         playingSource = source;
     }
+    updateTransportUi();
+}
+
+void DivergeAudioProcessorEditor::seekPreview(const juce::File& file, double proportion,
+                                               int candidateRank, bool source)
+{
+    if (!file.existsAsFile()) return;
+    if (audioProcessor.previewPath() != file.getFullPathName() && !audioProcessor.loadPreview(file)) return;
+    audioProcessor.seekPreview(proportion);
+    audioProcessor.playPreview();
+    playingCandidate = candidateRank;
+    playingSource = source;
     updateTransportUi();
 }
 

@@ -89,6 +89,11 @@ bool DivergeAudioProcessor::loadPreview(const juce::File& file)
         return false;
     juce::AudioBuffer<float> loaded(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
     reader->read(&loaded, 0, loaded.getNumSamples(), 0, true, true);
+    float peak = 0.0f;
+    for (int channel = 0; channel < loaded.getNumChannels(); ++channel)
+        peak = juce::jmax(peak, loaded.getMagnitude(channel, 0, loaded.getNumSamples()));
+    if (peak > 0.0f)
+        loaded.applyGain(juce::jmin(1.0f, 0.82f / peak));
     const juce::SpinLock::ScopedLockType lock(previewLock);
     previewBuffer = std::move(loaded);
     previewPosition = 0;
@@ -100,7 +105,6 @@ bool DivergeAudioProcessor::loadPreview(const juce::File& file)
 void DivergeAudioProcessor::playPreview()
 {
     const juce::SpinLock::ScopedLockType lock(previewLock);
-    previewPosition = 0;
     previewPlaying = previewBuffer.getNumSamples() > 0;
 }
 
@@ -109,6 +113,13 @@ void DivergeAudioProcessor::stopPreview()
     const juce::SpinLock::ScopedLockType lock(previewLock);
     previewPlaying = false;
     previewPosition = 0;
+}
+
+void DivergeAudioProcessor::seekPreview(double proportion)
+{
+    const juce::SpinLock::ScopedLockType lock(previewLock);
+    previewPosition = juce::jlimit(0, juce::jmax(0, previewLength - 1),
+                                   static_cast<int>(proportion * static_cast<double>(previewLength)));
 }
 
 double DivergeAudioProcessor::previewProgress() const

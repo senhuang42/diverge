@@ -43,6 +43,7 @@ public:
     std::function<void()> onActivate;
     std::function<void()> onChoose;
     std::function<void()> onDrag;
+    std::function<void(double)> onSeek;
 
     void setAudio(juce::String title, juce::String emptyPrompt, const juce::File&);
     void setSupportingText(juce::String text);
@@ -56,6 +57,7 @@ public:
     void mouseExit(const juce::MouseEvent&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
+    bool keyPressed(const juce::KeyPress&) override;
 
 private:
     juce::String heading;
@@ -67,6 +69,7 @@ private:
     bool playing = false;
     bool hovered = false;
     bool draggable = false;
+    bool reducedMotion = false;
     double playbackProgress = 0.0;
     float hoverMix = 0.0f;
     CandidateDecision decision = CandidateDecision::none;

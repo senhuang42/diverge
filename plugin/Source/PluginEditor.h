@@ -48,6 +48,7 @@ private:
     void setAudioSlot(int slot, const juce::File&);
     void toggleCapture();
     void togglePreview(const juce::File&, int candidateRank = 0, bool source = false);
+    void seekPreview(const juce::File&, double proportion, int candidateRank = 0, bool source = false);
     void updateTransportUi();
     void startGeneration();
     juce::File writeRunConfig() const;

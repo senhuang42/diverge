@@ -34,7 +34,8 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     embedder = Embedder(
         model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
     )
-    run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
+    events: list[str] = []
+    run_dir = run_session(config, MockGenerator(), embedder, progress=events.append)
     waves = sorted(run_dir.glob("cand_*.wav"))
     assert len(waves) == 3
     assert (run_dir / "manifest.json").exists()
@@ -42,6 +43,18 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(manifest["candidates"]) == 3
     assert manifest["taste"]["version"] == 2
+    structured = [
+        json.loads(item.removeprefix("DIVERGE_EVENT "))
+        for item in events
+        if item.startswith("DIVERGE_EVENT ")
+    ]
+    assert [item["stage"] for item in structured if "completed" not in item] == [
+        "preparing",
+        "comparing",
+        "choosing",
+        "ready",
+    ]
+    assert structured[-2].get("stage") == "choosing"
     assert all("taste_uncertainty" in item for item in manifest["candidates"])
     assert all(path.stat().st_size > 1_000 for path in waves)
 

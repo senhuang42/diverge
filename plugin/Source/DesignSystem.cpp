@@ -97,6 +97,7 @@ WaveformCard::WaveformCard(juce::AudioFormatManager& manager, juce::AudioThumbna
 {
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
     setWantsKeyboardFocus(true);
+    reducedMotion = juce::SystemStats::getEnvironmentVariable("DIVERGE_REDUCED_MOTION", {}) == "1";
 }
 
 void WaveformCard::setAudio(juce::String title, juce::String empty, const juce::File& file)
@@ -130,7 +131,7 @@ void WaveformCard::setState(bool isSelected, bool isPlaying, double progress, Ca
 void WaveformCard::advanceAnimation()
 {
     const auto target = hovered || selected ? 1.0f : 0.0f;
-    const auto next = hoverMix + (target - hoverMix) * 0.28f;
+    const auto next = reducedMotion ? target : hoverMix + (target - hoverMix) * 0.28f;
     if (std::abs(next - hoverMix) > 0.002f)
     {
         hoverMix = next;
@@ -144,8 +145,10 @@ void WaveformCard::paint(juce::Graphics& g)
     const auto fill = DivergeTheme::surface.interpolatedWith(DivergeTheme::raised, hoverMix * 0.8f);
     g.setColour(fill);
     g.fillRoundedRectangle(bounds, DivergeTheme::radius);
-    g.setColour(selected ? DivergeTheme::exploration : DivergeTheme::edge.withMultipliedAlpha(0.8f));
-    g.drawRoundedRectangle(bounds, DivergeTheme::radius, selected ? 1.7f : 1.0f);
+    const auto focused = hasKeyboardFocus(true);
+    g.setColour(selected || focused ? DivergeTheme::exploration
+                                    : DivergeTheme::edge.withMultipliedAlpha(0.8f));
+    g.drawRoundedRectangle(bounds, DivergeTheme::radius, selected || focused ? 1.7f : 1.0f);
 
     auto content = getLocalBounds().reduced(14, 9);
     auto header = content.removeFromTop(20);
@@ -221,14 +224,29 @@ void WaveformCard::paint(juce::Graphics& g)
 void WaveformCard::mouseEnter(const juce::MouseEvent&) { hovered = true; }
 void WaveformCard::mouseExit(const juce::MouseEvent&) { hovered = false; }
 
-void WaveformCard::mouseDown(const juce::MouseEvent&)
+void WaveformCard::mouseDown(const juce::MouseEvent& event)
 {
     if (audioFile.existsAsFile())
     {
-        if (onActivate) onActivate();
+        if (onSeek && event.x > 54)
+            onSeek(juce::jlimit(0.0, 1.0, static_cast<double>(event.x - 54)
+                                           / static_cast<double>(juce::jmax(1, getWidth() - 68))));
+        else if (onActivate)
+            onActivate();
     }
     else if (onChoose)
         onChoose();
+}
+
+bool WaveformCard::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::returnKey || key == juce::KeyPress::spaceKey)
+    {
+        if (audioFile.existsAsFile() && onActivate) onActivate();
+        else if (!audioFile.existsAsFile() && onChoose) onChoose();
+        return true;
+    }
+    return false;
 }
 
 void WaveformCard::mouseDrag(const juce::MouseEvent& event)

@@ -37,6 +37,7 @@ public:
     bool loadPreview(const juce::File& file);
     void playPreview();
     void stopPreview();
+    void seekPreview(double proportion);
     bool isPreviewPlaying() const noexcept { return previewPlaying.load(); }
     double previewProgress() const;
     juce::String previewPath() const;

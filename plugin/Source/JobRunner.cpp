@@ -71,7 +71,34 @@ void JobRunner::publishOutput(const juce::String& chunk)
 
     for (const auto& line : lines)
     {
-        if (line.startsWith("PROGRESS"))
+        if (line.startsWith("DIVERGE_EVENT "))
+        {
+            const auto event = juce::JSON::parse(line.fromFirstOccurrenceOf(" ", false, false));
+            const auto stage = event.getProperty("stage", {}).toString();
+            const auto completed = static_cast<int>(event.getProperty("completed", 0));
+            const auto total = static_cast<int>(event.getProperty("total", 0));
+            updateSnapshot([stage, completed, total](Snapshot& state)
+            {
+                if (stage == "preparing") { state.status = Status::preparing; state.message = "Preparing your source"; }
+                else if (stage == "creating") { state.status = Status::creating; state.message = "Creating candidates"; }
+                else if (stage == "comparing") { state.status = Status::comparing; state.message = "Comparing the full set"; }
+                else if (stage == "choosing") { state.status = Status::choosing; state.message = "Choosing eight directions"; }
+                else if (stage == "ready") { state.status = Status::choosing; state.message = "Loading waveforms"; }
+                else if (stage == "error")
+                {
+                    state.status = Status::failed;
+                    state.message = "Creation needs attention";
+                }
+                if (completed > 0) state.completed = completed;
+                if (total > 0) state.total = total;
+            });
+            if (stage == "error")
+                updateSnapshot([message = event.getProperty("message", {}).toString()](Snapshot& state)
+                {
+                    state.error = message;
+                });
+        }
+        else if (line.startsWith("PROGRESS"))
         {
             const auto parts = juce::StringArray::fromTokens(line.fromFirstOccurrenceOf(" ", false, false), "/", "");
             const auto completed = parts.size() > 0 ? parts[0].getIntValue() : 0;
@@ -140,7 +167,7 @@ void JobRunner::run()
     updateSnapshot([result, error](Snapshot& state)
     {
         state.run = result;
-        state.error = error;
+        if (state.error.isEmpty()) state.error = error;
         if (result.isDirectory())
         {
             state.status = Status::complete;

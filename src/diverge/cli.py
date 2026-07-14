@@ -229,11 +229,21 @@ def main(argv: list[str] | None = None) -> int:
             args.models_dir, fast=config.fast, batch_size=config.generation_batch_size
         )
     )
-    output = run_session(
-        config,
-        generator,
-        Embedder(model_path=args.models_dir / "clap-htsat-unfused"),
-    )
+    try:
+        output = run_session(
+            config,
+            generator,
+            Embedder(model_path=args.models_dir / "clap-htsat-unfused"),
+        )
+    except Exception as exc:
+        print(
+            "DIVERGE_EVENT "
+            + json.dumps(
+                {"stage": "error", "code": type(exc).__name__, "message": str(exc)}
+            ),
+            flush=True,
+        )
+        raise
     print(output)
     return 0
 
