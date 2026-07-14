@@ -319,7 +319,8 @@ void DivergeAudioProcessorEditor::configureUi()
     for (auto* component : std::initializer_list<juce::Component*> {
              &brandLabel, &promiseLabel, &localBadge, &settingsButton,
              &sourceSection, sourceCard.get(), &recordButton, &directionSection, directionCard.get(),
-             &addDirectionButton, &styleEditor, &changeSection, &changeSlider, &familiarLabel, &wildLabel,
+             &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
+             &changeSection, &changeSlider, &familiarLabel, &wildLabel,
              &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
@@ -355,12 +356,23 @@ void DivergeAudioProcessorEditor::configureUi()
     directionCard->onChoose = [this] { chooseAudio(1); };
     directionCard->onActivate = [this] { togglePreview(audioSlots[1]); };
     directionCard->onSeek = [this](double position) { seekPreview(audioSlots[1], position); };
+    replaceDirectionButton.onClick = [this] { chooseAudio(1); };
+    replaceDirectionButton.setTooltip("Choose a different direction reference");
+    removeDirectionButton.onClick = [this]
+    {
+        const auto removedPath = audioSlots[1].getFullPathName();
+        if (audioProcessor.previewPath() == removedPath) audioProcessor.stopPreview();
+        setAudioSlot(1, juce::File());
+        showToast("Direction reference removed");
+    };
+    removeDirectionButton.setTooltip("Remove the direction reference from this brief");
+    removeDirectionButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::danger);
     recordButton.onClick = [this] { toggleCapture(); };
     addDirectionButton.onClick = [this]
     {
         showDirectionText = !showDirectionText;
         styleEditor.setVisible(showDirectionText && showPrepare);
-        addDirectionButton.setButtonText(showDirectionText ? "- Hide direction" : "+ Add direction");
+        addDirectionButton.setButtonText(showDirectionText ? "- Hide text" : "+ Text direction");
         resized();
     };
     styleEditor.setTextToShowWhenEmpty("Describe a texture, energy, or production direction...", DivergeTheme::muted);
@@ -736,7 +748,14 @@ void DivergeAudioProcessorEditor::resized()
         area.removeFromTop(14);
         auto directionHeader = area.removeFromTop(30);
         directionSection.setBounds(directionHeader.removeFromLeft(220));
-        addDirectionButton.setBounds(directionHeader.removeFromRight(142));
+        addDirectionButton.setBounds(directionHeader.removeFromRight(132));
+        if (audioSlots[1].existsAsFile())
+        {
+            directionHeader.removeFromRight(6);
+            removeDirectionButton.setBounds(directionHeader.removeFromRight(82));
+            directionHeader.removeFromRight(6);
+            replaceDirectionButton.setBounds(directionHeader.removeFromRight(82));
+        }
         directionCard->setBounds(area.removeFromTop(84));
         if (showDirectionText)
         {
@@ -833,9 +852,11 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     const auto generating = audioProcessor.generation().isActive();
     for (auto* component : std::initializer_list<juce::Component*> {
              &sourceSection, sourceCard.get(), &recordButton, &directionSection, directionCard.get(),
-             &addDirectionButton, &changeSection, &changeSlider, &familiarLabel, &wildLabel, &preserveSection,
+             &replaceDirectionButton, &removeDirectionButton, &addDirectionButton,
+             &changeSection, &changeSlider, &familiarLabel, &wildLabel, &preserveSection,
              &grooveLock, &melodyLock, &timbreLock, &generateButton, &progressLabel, &privacyLabel })
         component->setVisible(visible);
+    refreshSlotCard(1);
     styleEditor.setVisible(visible && showDirectionText);
     cancelButton.setVisible(visible && generating);
     for (auto* component : std::initializer_list<juce::Component*> {
@@ -888,10 +909,11 @@ void DivergeAudioProcessorEditor::fileDragExit(const juce::StringArray&)
     repaint();
 }
 
-void DivergeAudioProcessorEditor::filesDropped(const juce::StringArray& files, int, int)
+void DivergeAudioProcessorEditor::filesDropped(const juce::StringArray& files, int x, int y)
 {
     dragHover = false;
-    if (files.size() == 1) setAudioSlot(0, juce::File(files[0]));
+    if (files.size() == 1)
+        setAudioSlot(directionCard->getBounds().contains(x, y) ? 1 : 0, juce::File(files[0]));
     repaint();
 }
 
@@ -915,14 +937,23 @@ void DivergeAudioProcessorEditor::refreshSlotCard(int slot)
     if (slot == 0)
         sourceCard->setAudio(heading, "Drop, record, or choose a source", file);
     else if (slot == 1)
+    {
         directionCard->setAudio(heading, "Add an optional reference to pull toward", file);
+        const auto showActions = showPrepare && file.existsAsFile();
+        replaceDirectionButton.setVisible(showActions);
+        removeDirectionButton.setVisible(showActions);
+    }
 }
 
 void DivergeAudioProcessorEditor::setAudioSlot(int slot, const juce::File& file)
 {
     audioSlots[static_cast<size_t>(slot)] = file;
     workflow.audioSlots[static_cast<size_t>(slot)] = file;
-    if (slot <= 1) refreshSlotCard(slot);
+    if (slot <= 1)
+    {
+        refreshSlotCard(slot);
+        if (slot == 1) resized();
+    }
     workflow.view = audioSlots[0].existsAsFile() ? WorkflowViewState::ready : WorkflowViewState::needsSetup;
     saveSettings();
 }
@@ -1475,7 +1506,7 @@ void DivergeAudioProcessorEditor::restoreSettings()
     timbreLock.setToggleState(workflow.preserveTimbre, juce::dontSendNotification);
     styleEditor.setText(workflow.direction, false);
     showDirectionText = workflow.direction.isNotEmpty();
-    addDirectionButton.setButtonText(showDirectionText ? "- Hide direction" : "+ Add direction");
+    addDirectionButton.setButtonText(showDirectionText ? "- Hide text" : "+ Text direction");
     refreshSlotCard(0);
     refreshSlotCard(1);
     const auto studioReady = juce::File(pythonEditor.getText()).existsAsFile()

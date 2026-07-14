@@ -127,7 +127,9 @@ private:
     std::unique_ptr<WaveformCard> sourceCard;
     std::unique_ptr<WaveformCard> directionCard;
     juce::TextButton recordButton { "Record" };
-    juce::TextButton addDirectionButton { "+ Add direction" };
+    juce::TextButton replaceDirectionButton { "Replace" };
+    juce::TextButton removeDirectionButton { "Remove" };
+    juce::TextButton addDirectionButton { "+ Text direction" };
     juce::TextEditor styleEditor;
     juce::Slider changeSlider;
     juce::Label familiarLabel;
