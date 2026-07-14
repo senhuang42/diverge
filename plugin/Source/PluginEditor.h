@@ -171,10 +171,11 @@ private:
 
     PanelSurface settingsPanel;
     juce::Label settingsTitle;
+    juce::Label settingsSubtitle;
     juce::TextButton settingsClose { "Done" };
-    juce::Label studioStatus;
-    juce::Label learningStatus;
-    juce::Label libraryStatus;
+    StatusCard studioStatus;
+    StatusCard learningStatus;
+    StatusCard libraryStatus;
     juce::TextButton advancedButton { "Advanced diagnostics" };
     juce::Label pythonLabel;
     juce::TextEditor pythonEditor;

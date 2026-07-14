@@ -275,7 +275,10 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         progressLabel.setColour(juce::Label::textColourId, DivergeTheme::danger);
     }
     else if (fixtureMode == "settings")
+    {
         setSettingsVisible(true);
+        setAdvancedVisible(true);
+    }
     else if (fixtureMode == "results" || fixtureMode == "recent" || fixtureMode == "map")
     {
         auto run = juce::File(juce::SystemStats::getEnvironmentVariable("DIVERGE_FIXTURE_RUN", {}));
@@ -490,26 +493,38 @@ void DivergeAudioProcessorEditor::configureUi()
     settingsButton.onClick = [this] { setSettingsVisible(true); };
     settingsPanel.setVisible(false);
     for (auto* component : std::initializer_list<juce::Component*> {
-             &settingsTitle, &settingsClose, &studioStatus, &learningStatus, &libraryStatus, &advancedButton,
+             &settingsTitle, &settingsSubtitle, &settingsClose, &studioStatus, &learningStatus,
+             &libraryStatus, &advancedButton,
              &pythonLabel, &pythonEditor, &modelsLabel, &modelsEditor, &libraryLabel, &libraryEditor,
              &choicesLabel, &choicesEditor, &outputLabel, &outputEditor })
         settingsPanel.addAndMakeVisible(component);
     settingsTitle.setText("SETTINGS", juce::dontSendNotification);
     settingsTitle.setFont(DivergeTheme::display(17.0f));
+    configureSupportingLabel(settingsSubtitle, "Diverge runs and learns entirely on this Mac.");
+    settingsSubtitle.setColour(juce::Label::textColourId, DivergeTheme::dim);
     settingsClose.onClick = [this] { saveSettings(); setSettingsVisible(false); };
-    configureSupportingLabel(studioStatus, "STUDIO\nLocal engine and models are checked before creation.");
-    configureSupportingLabel(learningStatus, "PREFERENCES\nLearns only from choices you make. Stored locally.");
-    configureSupportingLabel(libraryStatus, "LIBRARY\nLibrary avoidance appears only after an index is connected.");
-    for (auto* status : { &studioStatus, &learningStatus, &libraryStatus })
-        status->setFont(juce::FontOptions(13.0f));
+    studioStatus.set("Studio", "Local engine and models are checked before creation.",
+                     StatusCard::State::neutral);
+    learningStatus.set("Preferences", "Learns only from choices you make. Stored locally.",
+                       StatusCard::State::neutral);
+    libraryStatus.set("Library", "Library avoidance appears only after an index is connected.",
+                      StatusCard::State::neutral);
     advancedButton.onClick = [this] { setAdvancedVisible(!showAdvanced); };
     pythonLabel.setText("Engine", juce::dontSendNotification);
     modelsLabel.setText("Models", juce::dontSendNotification);
     libraryLabel.setText("Library index", juce::dontSendNotification);
     choicesLabel.setText("Choices", juce::dontSendNotification);
     outputLabel.setText("Storage", juce::dontSendNotification);
+    for (auto* label : { &pythonLabel, &modelsLabel, &libraryLabel, &choicesLabel, &outputLabel })
+    {
+        label->setFont(DivergeTheme::bodyBold(12.5f));
+        label->setColour(juce::Label::textColourId, DivergeTheme::muted);
+    }
     for (auto* editor : { &pythonEditor, &modelsEditor, &libraryEditor, &choicesEditor, &outputEditor })
+    {
+        editor->setFont(DivergeTheme::mono(12.0f));
         editor->onFocusLost = [this] { saveSettings(); };
+    }
     setAdvancedVisible(false);
 }
 
@@ -681,25 +696,27 @@ void DivergeAudioProcessorEditor::resized()
     if (settingsPanel.isVisible())
     {
         settingsPanel.setBounds(area);
-        auto settings = settingsPanel.getLocalBounds().reduced(28);
-        auto titleRow = settings.removeFromTop(44);
+        auto settings = settingsPanel.getLocalBounds().reduced(28, 24);
+        settings = settings.withSizeKeepingCentre(juce::jmin(880, settings.getWidth()), settings.getHeight());
+        auto titleRow = settings.removeFromTop(36);
+        settingsClose.setBounds(titleRow.removeFromRight(88).reduced(0, 0));
         settingsTitle.setBounds(titleRow.removeFromLeft(240));
-        settingsClose.setBounds(titleRow.removeFromRight(88));
+        settingsSubtitle.setBounds(settings.removeFromTop(22));
         settings.removeFromTop(18);
-        auto cards = settings.removeFromTop(102);
+        auto cards = settings.removeFromTop(104);
         const auto statusWidth = (cards.getWidth() - 24) / 3;
         studioStatus.setBounds(cards.removeFromLeft(statusWidth)); cards.removeFromLeft(12);
         learningStatus.setBounds(cards.removeFromLeft(statusWidth)); cards.removeFromLeft(12);
         libraryStatus.setBounds(cards);
-        settings.removeFromTop(18);
-        advancedButton.setBounds(settings.removeFromTop(42).removeFromLeft(190));
-        settings.removeFromTop(12);
+        settings.removeFromTop(22);
+        advancedButton.setBounds(settings.removeFromTop(40).removeFromLeft(190));
+        settings.removeFromTop(14);
         auto place = [&settings](juce::Label& label, juce::TextEditor& editor)
         {
-            auto row = settings.removeFromTop(42);
+            auto row = settings.removeFromTop(40);
             label.setBounds(row.removeFromLeft(110));
             editor.setBounds(row);
-            settings.removeFromTop(6);
+            settings.removeFromTop(8);
         };
         place(pythonLabel, pythonEditor); place(modelsLabel, modelsEditor); place(libraryLabel, libraryEditor);
         place(choicesLabel, choicesEditor); place(outputLabel, outputEditor);
@@ -1397,7 +1414,7 @@ juce::File DivergeAudioProcessorEditor::tasteModelFile() const
 
 void DivergeAudioProcessorEditor::trainCritic()
 {
-    learningStatus.setText("PREFERENCES\nUpdating from your local choices...", juce::dontSendNotification);
+    learningStatus.set("Preferences", "Updating from your local choices...", StatusCard::State::neutral);
     runCriticCommand({ "train", "--events", tasteEventsFile().getFullPathName(),
                        "--model", tasteModelFile().getFullPathName() });
 }
@@ -1424,9 +1441,11 @@ void DivergeAudioProcessorEditor::pollCriticProcess()
     }
     else if (criticAction == "train")
         totalChoiceCount = static_cast<int>(parsed.getProperty("observations", 0));
-    learningStatus.setText(totalChoiceCount > 0
-        ? "PREFERENCES\nLearning locally from the choices you make."
-        : "PREFERENCES\nReady to learn from your Keeps and Passes.", juce::dontSendNotification);
+    learningStatus.set("Preferences",
+                       totalChoiceCount > 0
+                           ? "Learning locally from " + juce::String(totalChoiceCount) + " choices you have made."
+                           : "Ready to learn from your Keeps and Passes.",
+                       totalChoiceCount > 0 ? StatusCard::State::ok : StatusCard::State::neutral);
     if (!criticQueue.empty())
     {
         const auto next = criticQueue.front();
@@ -1459,12 +1478,17 @@ void DivergeAudioProcessorEditor::restoreSettings()
     addDirectionButton.setButtonText(showDirectionText ? "- Hide direction" : "+ Add direction");
     refreshSlotCard(0);
     refreshSlotCard(1);
-    studioStatus.setText(juce::File(pythonEditor.getText()).existsAsFile() && juce::File(modelsEditor.getText()).isDirectory()
-        ? "STUDIO\nLocal engine and models are ready."
-        : "STUDIO\nSetup needs attention in Advanced diagnostics.", juce::dontSendNotification);
-    libraryStatus.setText(libraryEditor.getText().trim().isNotEmpty()
-        ? "LIBRARY\nAvoid my library is available for future batches."
-        : "LIBRARY\nConnect an index to enable library avoidance.", juce::dontSendNotification);
+    const auto studioReady = juce::File(pythonEditor.getText()).existsAsFile()
+                             && juce::File(modelsEditor.getText()).isDirectory();
+    studioStatus.set("Studio",
+                     studioReady ? "Local engine and models are ready."
+                                 : "Setup needs attention - check the paths in Advanced diagnostics.",
+                     studioReady ? StatusCard::State::ok : StatusCard::State::attention);
+    const auto libraryReady = libraryEditor.getText().trim().isNotEmpty();
+    libraryStatus.set("Library",
+                      libraryReady ? "Avoid my library is available for future batches."
+                                   : "Connect an index to enable library avoidance.",
+                      libraryReady ? StatusCard::State::ok : StatusCard::State::neutral);
 }
 
 void DivergeAudioProcessorEditor::saveSettings()

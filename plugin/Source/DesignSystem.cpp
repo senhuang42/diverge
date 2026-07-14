@@ -312,6 +312,58 @@ void PanelSurface::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(1.0f), DivergeTheme::radius - 1.0f, 1.0f);
 }
 
+void StatusCard::set(juce::String nextTitle, juce::String nextBody, State nextState)
+{
+    if (title == nextTitle && body == nextBody && state == nextState) return;
+    title = std::move(nextTitle);
+    body = std::move(nextBody);
+    state = nextState;
+    setTitle(title);
+    setDescription(body);
+    repaint();
+}
+
+void StatusCard::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat().reduced(1.0f);
+    g.setGradientFill({ DivergeTheme::surface.interpolatedWith(DivergeTheme::raised, 0.55f),
+                        bounds.getX(), bounds.getY(),
+                        DivergeTheme::surface, bounds.getX(), bounds.getBottom(), false });
+    g.fillRoundedRectangle(bounds, DivergeTheme::radius);
+    const auto tint = state == State::ok ? DivergeTheme::exploration
+                    : state == State::attention ? DivergeTheme::decision
+                                                : DivergeTheme::edge;
+    if (state == State::attention)
+        DivergeTheme::paintInnerGlow(g, bounds, DivergeTheme::radius, tint, 0.8f);
+    g.setColour(state == State::neutral ? DivergeTheme::edge.withAlpha(0.8f) : tint.withAlpha(0.55f));
+    g.drawRoundedRectangle(bounds, DivergeTheme::radius, 1.0f);
+
+    auto content = getLocalBounds().reduced(16, 13);
+    auto titleRow = content.removeFromTop(16);
+    const auto dot = juce::Rectangle<float>(7.0f, 7.0f)
+                         .withCentre({ static_cast<float>(titleRow.getX()) + 3.5f,
+                                       static_cast<float>(titleRow.getCentreY()) });
+    if (state == State::neutral)
+    {
+        g.setColour(DivergeTheme::dim);
+        g.drawEllipse(dot, 1.2f);
+    }
+    else
+    {
+        g.setColour(tint);
+        g.fillEllipse(dot);
+        g.setColour(tint.withAlpha(0.3f));
+        g.drawEllipse(dot.expanded(2.5f), 1.0f);
+    }
+    g.setColour(DivergeTheme::muted);
+    g.setFont(DivergeTheme::label(10.0f));
+    g.drawText(title.toUpperCase(), titleRow.withTrimmedLeft(16), juce::Justification::centredLeft, false);
+    content.removeFromTop(7);
+    g.setColour(state == State::attention ? DivergeTheme::text : DivergeTheme::muted.brighter(0.1f));
+    g.setFont(DivergeTheme::body(12.5f));
+    g.drawFittedText(body, content, juce::Justification::topLeft, 3);
+}
+
 void ScrimOverlay::paint(juce::Graphics& g)
 {
     g.fillAll(DivergeTheme::canvas.withAlpha(0.6f));

@@ -89,6 +89,20 @@ public:
     void paint(juce::Graphics&) override;
 };
 
+// Small card showing one subsystem's health: eyebrow title, state dot, body copy.
+class StatusCard final : public juce::Component
+{
+public:
+    enum class State { neutral, ok, attention };
+    void set(juce::String title, juce::String body, State state);
+    void paint(juce::Graphics&) override;
+
+private:
+    juce::String title;
+    juce::String body;
+    State state = State::neutral;
+};
+
 // Click-to-dismiss dimming layer behind drawers.
 class ScrimOverlay final : public juce::Component
 {
