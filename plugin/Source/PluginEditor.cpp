@@ -6,7 +6,7 @@ namespace
 void configureSectionLabel(juce::Label& label, const juce::String& text)
 {
     label.setText(text, juce::dontSendNotification);
-    label.setFont(juce::FontOptions(11.5f).withStyle("Bold"));
+    label.setFont(DivergeTheme::label(10.5f));
     label.setColour(juce::Label::textColourId, DivergeTheme::muted);
 }
 
@@ -14,7 +14,7 @@ void configureSupportingLabel(juce::Label& label, const juce::String& text,
                               juce::Justification justification = juce::Justification::centredLeft)
 {
     label.setText(text, juce::dontSendNotification);
-    label.setFont(juce::FontOptions(12.5f));
+    label.setFont(DivergeTheme::body(12.5f));
     label.setColour(juce::Label::textColourId, DivergeTheme::muted);
     label.setJustificationType(justification);
 }
@@ -49,6 +49,7 @@ void MapComponent::setSelectedRank(int rank)
 
 void MapComponent::setDecisions(const std::array<CandidateDecision, 8>& next)
 {
+    if (decisions == next) return;
     decisions = next;
     repaint();
 }
@@ -72,62 +73,107 @@ juce::Point<float> MapComponent::positionFor(const MapPoint& point) const
 void MapComponent::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat().reduced(1.0f);
-    g.setColour(DivergeTheme::surface);
+    g.setGradientFill({ DivergeTheme::surface.brighter(0.02f), bounds.getX(), bounds.getY(),
+                        DivergeTheme::surface.darker(0.12f), bounds.getX(), bounds.getBottom(), false });
     g.fillRoundedRectangle(bounds, DivergeTheme::radius);
-    g.setColour(DivergeTheme::edge);
+    g.setColour(DivergeTheme::hairline);
     g.drawRoundedRectangle(bounds, DivergeTheme::radius, 1.0f);
     if (points.empty())
     {
         g.setColour(DivergeTheme::muted);
-        g.setFont(juce::FontOptions(15.0f));
+        g.setFont(DivergeTheme::body(14.5f));
         g.drawFittedText("The variation map appears after a batch is ready.", getLocalBounds().reduced(48),
                          juce::Justification::centred, 2);
         return;
     }
 
-    juce::Path traces;
     juce::Point<float> sourcePoint;
     for (const auto& point : points)
         if (point.kind == "source") sourcePoint = positionFor(point);
+
+    juce::Graphics::ScopedSaveState clip(g);
+    juce::Path panel;
+    panel.addRoundedRectangle(bounds.reduced(1.0f), DivergeTheme::radius - 1.0f);
+    g.reduceClipRegion(panel);
+
+    // Distance rings around the source: near stays familiar, far diverges.
+    for (int ring = 1; ring <= 3; ++ring)
+    {
+        const auto ringRadius = static_cast<float>(ring) * bounds.getHeight() * 0.28f;
+        g.setColour(DivergeTheme::hairline.withAlpha(0.75f - static_cast<float>(ring) * 0.15f));
+        g.drawEllipse(juce::Rectangle<float>(ringRadius * 2.0f, ringRadius * 2.0f)
+                          .withCentre(sourcePoint), 1.0f);
+    }
+
     for (const auto& point : points)
         if (point.rank > 0)
         {
-            traces.startNewSubPath(sourcePoint);
-            traces.lineTo(positionFor(point));
+            const auto target = positionFor(point);
+            const auto middle = sourcePoint + (target - sourcePoint) * 0.5f;
+            const auto delta = target - sourcePoint;
+            const juce::Point<float> bow { -delta.y * 0.12f, delta.x * 0.12f };
+            juce::Path trace;
+            trace.startNewSubPath(sourcePoint);
+            trace.quadraticTo(middle + bow, target);
+            const auto isSelected = point.rank == selectedRank;
+            g.setColour(isSelected ? DivergeTheme::exploration.withAlpha(0.55f)
+                                   : DivergeTheme::edge.withAlpha(0.55f));
+            g.strokePath(trace, juce::PathStrokeType(isSelected ? 1.6f : 1.0f));
         }
-    g.setColour(DivergeTheme::edge.withAlpha(0.7f));
-    g.strokePath(traces, juce::PathStrokeType(1.0f));
 
     for (const auto& point : points)
     {
         const auto position = positionFor(point);
         if (point.kind == "source")
         {
+            g.setColour(DivergeTheme::exploration.withAlpha(0.30f));
+            g.drawEllipse(juce::Rectangle<float>(24.0f, 24.0f).withCentre(position), 1.2f);
             g.setColour(DivergeTheme::text);
-            g.fillEllipse(juce::Rectangle<float>(15.0f, 15.0f).withCentre(position));
+            g.fillEllipse(juce::Rectangle<float>(11.0f, 11.0f).withCentre(position));
+            g.setColour(DivergeTheme::dim);
+            g.setFont(DivergeTheme::label(8.5f));
+            g.drawText("SOURCE", juce::Rectangle<float>(64.0f, 14.0f)
+                           .withCentre(position.translated(0.0f, 23.0f)),
+                       juce::Justification::centred, false);
         }
         else if (point.kind == "reference")
         {
+            juce::Path diamond;
+            diamond.addQuadrilateral(position.x, position.y - 8.0f, position.x + 8.0f, position.y,
+                                     position.x, position.y + 8.0f, position.x - 8.0f, position.y);
+            g.setColour(DivergeTheme::decisionSoft);
+            g.fillPath(diamond);
             g.setColour(DivergeTheme::decision);
-            g.fillRoundedRectangle(juce::Rectangle<float>(14.0f, 14.0f).withCentre(position), 3.0f);
+            g.strokePath(diamond, juce::PathStrokeType(1.3f));
         }
         else
         {
-            auto colour = point.rank == selectedRank ? DivergeTheme::exploration : DivergeTheme::muted;
+            const auto isSelected = point.rank == selectedRank;
+            auto colour = isSelected ? DivergeTheme::exploration : DivergeTheme::muted;
             if (point.rank >= 1 && point.rank <= 8)
             {
                 const auto decision = decisions[static_cast<size_t>(point.rank - 1)];
                 if (decision == CandidateDecision::keep || decision == CandidateDecision::favorite
                     || decision == CandidateDecision::exported)
-                    colour = DivergeTheme::decision;
+                    colour = isSelected ? DivergeTheme::exploration : DivergeTheme::decision;
+                else if (decision == CandidateDecision::pass)
+                    colour = isSelected ? DivergeTheme::exploration : DivergeTheme::dim;
             }
-            const auto size = point.rank == selectedRank ? 30.0f : 24.0f;
-            g.setColour(colour);
-            g.fillEllipse(juce::Rectangle<float>(size, size).withCentre(position));
-            g.setColour(DivergeTheme::canvas);
-            g.setFont(juce::FontOptions(11.0f).withStyle("Bold"));
-            g.drawText(juce::String(point.rank), juce::Rectangle<float>(size, size).withCentre(position),
-                       juce::Justification::centred);
+            const auto size = isSelected ? 32.0f : 25.0f;
+            const auto node = juce::Rectangle<float>(size, size).withCentre(position);
+            if (isSelected)
+                for (int halo = 1; halo <= 3; ++halo)
+                {
+                    g.setColour(DivergeTheme::exploration.withAlpha(0.14f / static_cast<float>(halo)));
+                    g.drawEllipse(node.expanded(static_cast<float>(halo) * 3.0f), 2.0f);
+                }
+            g.setColour(isSelected ? DivergeTheme::exploration : DivergeTheme::raised.brighter(0.05f));
+            g.fillEllipse(node);
+            g.setColour(isSelected ? DivergeTheme::exploration : colour.withAlpha(0.9f));
+            g.drawEllipse(node, isSelected ? 1.6f : 1.3f);
+            g.setColour(isSelected ? DivergeTheme::canvas : colour);
+            g.setFont(DivergeTheme::monoBold(11.0f));
+            g.drawText(juce::String(point.rank), node, juce::Justification::centred);
         }
     }
 }
@@ -175,8 +221,14 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
             }
         }
     }
+    const auto snapshotPath = juce::SystemStats::getEnvironmentVariable("DIVERGE_UI_SNAPSHOT", {});
+    if (snapshotPath.isNotEmpty())
+    {
+        snapshotFile = juce::File(snapshotPath);
+        snapshotTicks = 70;
+    }
     trainCritic();
-    startTimerHz(30);
+    startTimerHz(60);
 }
 
 bool DivergeAudioProcessorEditor::applyUiFixture()
@@ -191,13 +243,14 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
     if (fixtureMode == "empty")
     {
         audioSlots = {};
-        sourceCard->setAudio("Source", "Drop, record, or choose audio", {});
-        directionCard->setAudio("Direction", "Add an optional reference", {});
+        refreshSlotCard(0);
+        refreshSlotCard(1);
         setPrepareVisible(true);
         return true;
     }
     const auto fixture = WorkflowFixtures::make(
-        (fixtureMode == "results" || fixtureMode == "recent") ? WorkflowViewState::results
+        (fixtureMode == "results" || fixtureMode == "recent" || fixtureMode == "map")
+            ? WorkflowViewState::results
         : fixtureMode == "generating" ? WorkflowViewState::generating
         : fixtureMode == "error" ? WorkflowViewState::recoverableError
         : WorkflowViewState::ready);
@@ -205,8 +258,8 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
     changeSlider.setValue(workflow.change);
     audioSlots[0] = project.getChildFile("data/loop_a.wav");
     audioSlots[1] = project.getChildFile("data/ref_a.wav");
-    sourceCard->setAudio("Source", "Drop, record, or choose audio", audioSlots[0]);
-    directionCard->setAudio("Direction", "Add an optional reference", audioSlots[1]);
+    refreshSlotCard(0);
+    refreshSlotCard(1);
     setPrepareVisible(true);
     if (fixtureMode == "generating")
     {
@@ -216,9 +269,14 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         displayedProgress = 7.0f / 16.0f;
     }
     else if (fixtureMode == "error")
+    {
         progressLabel.setText("Local engine unavailable - open Settings for a quick health check",
                               juce::dontSendNotification);
-    else if (fixtureMode == "results" || fixtureMode == "recent")
+        progressLabel.setColour(juce::Label::textColourId, DivergeTheme::danger);
+    }
+    else if (fixtureMode == "settings")
+        setSettingsVisible(true);
+    else if (fixtureMode == "results" || fixtureMode == "recent" || fixtureMode == "map")
     {
         auto run = juce::File(juce::SystemStats::getEnvironmentVariable("DIVERGE_FIXTURE_RUN", {}));
         if (!run.isDirectory())
@@ -234,6 +292,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         }
         if (run.isDirectory()) loadRun(run);
         if (fixtureMode == "recent") setRecentVisible(true);
+        if (fixtureMode == "map") mapButton.triggerClick();
     }
     return true;
 }
@@ -261,17 +320,23 @@ void DivergeAudioProcessorEditor::configureUi()
              &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
-             &branchButton, &dragButton, &tighterButton, &widerButton, &shortcutLabel, &toastLabel,
-             &keptButton, &recentButton, &settingsPanel, &recentPanel })
+             &branchButton, &dragButton, &tighterButton, &widerButton, &shortcutLabel,
+             &keptButton, &recentButton, &scrim, &settingsPanel, &recentPanel, &toast })
         addAndMakeVisible(component);
     for (auto& card : candidateCards) addAndMakeVisible(card.get());
+    scrim.setVisible(false);
+    scrim.setAlpha(0.0f);
+    scrim.onDismiss = [this] { setRecentVisible(false); };
+    toast.setVisible(false);
 
     brandLabel.setText("DIVERGE", juce::dontSendNotification);
-    brandLabel.setFont(juce::FontOptions(23.0f).withStyle("Bold"));
+    brandLabel.setFont(DivergeTheme::display(20.0f));
     promiseLabel.setText("Recognizable where you choose. Different where it matters.", juce::dontSendNotification);
-    promiseLabel.setFont(juce::FontOptions(12.5f));
+    promiseLabel.setFont(DivergeTheme::body(12.5f));
     promiseLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
-    configureSupportingLabel(localBadge, "LOCAL", juce::Justification::centred);
+    localBadge.setText("LOCAL", juce::dontSendNotification);
+    localBadge.setFont(DivergeTheme::monoBold(10.0f));
+    localBadge.setJustificationType(juce::Justification::centred);
     localBadge.setColour(juce::Label::textColourId, DivergeTheme::exploration);
     settingsButton.setButtonText("...");
 
@@ -279,8 +344,8 @@ void DivergeAudioProcessorEditor::configureUi()
     configureSectionLabel(directionSection, "DIRECTION  /  OPTIONAL");
     configureSectionLabel(changeSection, "CHANGE");
     configureSectionLabel(preserveSection, "PRESERVE");
-    sourceCard->setAudio("Source", "Drop, record, or choose audio", {});
-    directionCard->setAudio("Direction", "Add an optional reference", {});
+    refreshSlotCard(0);
+    refreshSlotCard(1);
     sourceCard->onChoose = [this] { chooseAudio(0); };
     sourceCard->onActivate = [this] { togglePreview(audioSlots[0], 0, true); };
     sourceCard->onSeek = [this](double position) { seekPreview(audioSlots[0], position, 0, true); };
@@ -304,7 +369,11 @@ void DivergeAudioProcessorEditor::configureUi()
     changeSlider.setValue(45.0);
     changeSlider.setTooltip("How far each result may move from the source");
     configureSupportingLabel(familiarLabel, "FAMILIAR");
+    familiarLabel.setFont(DivergeTheme::label(9.5f));
+    familiarLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
     configureSupportingLabel(wildLabel, "UNRECOGNIZABLE", juce::Justification::centredRight);
+    wildLabel.setFont(DivergeTheme::label(9.5f));
+    wildLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
     grooveLock.setToggleState(true, juce::dontSendNotification);
     for (auto* lock : { &grooveLock, &melodyLock, &timbreLock }) lock->setClickingTogglesState(true);
 
@@ -315,10 +384,12 @@ void DivergeAudioProcessorEditor::configureUi()
     cancelButton.setVisible(false);
     configureSupportingLabel(progressLabel, "Ready when you are", juce::Justification::centred);
     configureSupportingLabel(privacyLabel, "Audio stays on this Mac.", juce::Justification::centred);
+    privacyLabel.setFont(DivergeTheme::body(11.5f));
+    privacyLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
 
     briefButton.onClick = [this] { setPrepareVisible(true); };
     resultsTitle.setText("8 VARIATIONS", juce::dontSendNotification);
-    resultsTitle.setFont(juce::FontOptions(16.0f).withStyle("Bold"));
+    resultsTitle.setFont(DivergeTheme::display(15.0f));
     gridButton.setClickingTogglesState(true);
     mapButton.setClickingTogglesState(true);
     gridButton.setToggleState(true, juce::dontSendNotification);
@@ -350,6 +421,7 @@ void DivergeAudioProcessorEditor::configureUi()
     };
     recentButton.onClick = [this] { setRecentVisible(true); };
     map.onCandidateSelected = [this](int rank) { selectCandidate(rank); };
+    map.setMouseCursor(juce::MouseCursor::PointingHandCursor);
 
     for (int index = 0; index < 8; ++index)
     {
@@ -369,7 +441,7 @@ void DivergeAudioProcessorEditor::configureUi()
         };
     }
 
-    selectedTitle.setFont(juce::FontOptions(14.0f).withStyle("Bold"));
+    selectedTitle.setFont(DivergeTheme::monoBold(12.5f));
     configureSupportingLabel(candidateDetail, "Choose a variation to hear it");
     abButton.onClick = [this]
     {
@@ -388,19 +460,16 @@ void DivergeAudioProcessorEditor::configureUi()
     keepButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     dragButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::exploration);
     dragButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
-    configureSupportingLabel(shortcutLabel, "SPACE play  /  arrows choose  /  A source  /  K keep  /  X pass  /  Cmd-Z undo",
+    configureSupportingLabel(shortcutLabel, "SPACE play  /  ARROWS choose  /  A source  /  K keep  /  X pass  /  CMD-Z undo",
                              juce::Justification::centredRight);
-    toastLabel.setJustificationType(juce::Justification::centred);
-    toastLabel.setFont(juce::FontOptions(12.5f).withStyle("Bold"));
-    toastLabel.setColour(juce::Label::backgroundColourId, DivergeTheme::raised);
-    toastLabel.setColour(juce::Label::textColourId, DivergeTheme::text);
-    toastLabel.setVisible(false);
+    shortcutLabel.setFont(DivergeTheme::mono(10.0f));
+    shortcutLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
 
     recentPanel.setVisible(false);
     recentPanel.addAndMakeVisible(recentTitle);
     recentPanel.addAndMakeVisible(recentClose);
     recentTitle.setText("RECENT RUNS", juce::dontSendNotification);
-    recentTitle.setFont(juce::FontOptions(17.0f).withStyle("Bold"));
+    recentTitle.setFont(DivergeTheme::display(15.0f));
     recentClose.onClick = [this] { setRecentVisible(false); };
     for (int index = 0; index < static_cast<int>(recentCards.size()); ++index)
     {
@@ -426,7 +495,7 @@ void DivergeAudioProcessorEditor::configureUi()
              &choicesLabel, &choicesEditor, &outputLabel, &outputEditor })
         settingsPanel.addAndMakeVisible(component);
     settingsTitle.setText("SETTINGS", juce::dontSendNotification);
-    settingsTitle.setFont(juce::FontOptions(20.0f).withStyle("Bold"));
+    settingsTitle.setFont(DivergeTheme::display(17.0f));
     settingsClose.onClick = [this] { saveSettings(); setSettingsVisible(false); };
     configureSupportingLabel(studioStatus, "STUDIO\nLocal engine and models are checked before creation.");
     configureSupportingLabel(learningStatus, "PREFERENCES\nLearns only from choices you make. Stored locally.");
@@ -444,54 +513,170 @@ void DivergeAudioProcessorEditor::configureUi()
     setAdvancedVisible(false);
 }
 
+void DivergeAudioProcessorEditor::renderBackground()
+{
+    const auto width = getWidth();
+    const auto height = getHeight();
+    if (width <= 0 || height <= 0) return;
+    backgroundImage = juce::Image(juce::Image::ARGB, width, height, true);
+    juce::Graphics g(backgroundImage);
+    const auto w = static_cast<float>(width);
+    const auto h = static_cast<float>(height);
+
+    g.setGradientFill({ DivergeTheme::canvasHi, 0.0f, 0.0f, DivergeTheme::canvas, 0.0f, h, false });
+    g.fillAll();
+
+    // Soft accent bloom behind the header.
+    g.setGradientFill(juce::ColourGradient(DivergeTheme::exploration.withAlpha(0.05f), 110.0f, 30.0f,
+                                           juce::Colours::transparentBlack, w * 0.62f, h * 0.72f, true));
+    g.fillRect(0, 0, width, height);
+
+    // Divergence rays fanning out from the brand mark.
+    const juce::Point<float> origin(30.0f, 44.0f);
+    for (int ray = 0; ray < 7; ++ray)
+    {
+        const auto angle = juce::degreesToRadians(74.0f + static_cast<float>(ray) * 6.5f);
+        const auto end = origin.getPointOnCircumference(w * 1.4f, angle);
+        g.setGradientFill(juce::ColourGradient(DivergeTheme::exploration.withAlpha(0.05f), origin.x, origin.y,
+                                               juce::Colours::transparentBlack, end.x, end.y, false));
+        g.drawLine({ origin, end }, 1.0f);
+    }
+
+    // Vignette keeps focus in the working area.
+    juce::ColourGradient vignette(juce::Colours::transparentBlack, w * 0.5f, h * 0.42f,
+                                  juce::Colour(0xff05070a).withAlpha(0.5f), 0.0f, h, true);
+    g.setGradientFill(vignette);
+    g.fillRect(0, 0, width, height);
+}
+
 void DivergeAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(DivergeTheme::canvas);
-    g.setColour(DivergeTheme::edge.withAlpha(0.32f));
-    for (int y = 72; y < getHeight(); y += 64)
-        g.drawHorizontalLine(y, 24.0f, static_cast<float>(getWidth() - 24));
-    g.setGradientFill(juce::ColourGradient(DivergeTheme::exploration.withAlpha(0.07f), 0.0f, 0.0f,
-                                            juce::Colours::transparentBlack, static_cast<float>(getWidth()) * 0.7f,
-                                            static_cast<float>(getHeight()) * 0.7f, false));
-    g.fillRect(getLocalBounds());
+    if (backgroundImage.isValid()) g.drawImageAt(backgroundImage, 0, 0);
+    else g.fillAll(DivergeTheme::canvas);
+
+    // Brand mark: three strokes diverging from one origin.
+    {
+        const juce::Point<float> origin(26.0f, 44.0f);
+        g.setColour(DivergeTheme::exploration);
+        g.drawLine({ origin, { 42.0f, 36.0f } }, 1.8f);
+        g.drawLine({ origin, { 44.0f, 44.0f } }, 1.8f);
+        g.drawLine({ origin, { 42.0f, 52.0f } }, 1.8f);
+        g.fillEllipse(juce::Rectangle<float>(4.5f, 4.5f).withCentre(origin));
+    }
+    g.setColour(DivergeTheme::hairline.withAlpha(0.9f));
+    g.fillRect(24, 71, getWidth() - 48, 1);
+
+    if (localBadge.isVisible())
+    {
+        const auto pill = localBadge.getBounds().toFloat().reduced(0.0f, 9.0f);
+        g.setColour(DivergeTheme::explorationSoft.withAlpha(0.75f));
+        g.fillRoundedRectangle(pill, pill.getHeight() * 0.5f);
+        g.setColour(DivergeTheme::exploration.withAlpha(0.4f));
+        g.drawRoundedRectangle(pill, pill.getHeight() * 0.5f, 1.0f);
+    }
+
+    const auto generating = audioProcessor.generation().isActive() || fixtureMode == "generating";
+    if (generating && progressLabel.isVisible())
+    {
+        auto zone = progressLabel.getBounds().toFloat();
+        auto bar = zone.removeFromBottom(5.0f)
+                       .withSizeKeepingCentre(juce::jmin(360.0f, zone.getWidth() - 40.0f), 5.0f);
+        g.setColour(DivergeTheme::hairline.brighter(0.05f));
+        g.fillRoundedRectangle(bar, 2.5f);
+        const auto fillWidth = juce::jmax(5.0f, bar.getWidth() * displayedProgress);
+        auto fill = bar.withWidth(fillWidth);
+        g.setGradientFill({ DivergeTheme::exploration.darker(0.3f), fill.getX(), fill.getY(),
+                            DivergeTheme::exploration, fill.getRight(), fill.getY(), false });
+        g.fillRoundedRectangle(fill, 2.5f);
+        g.setColour(DivergeTheme::exploration.withAlpha(0.35f));
+        g.fillEllipse(juce::Rectangle<float>(11.0f, 11.0f).withCentre({ fill.getRight(), fill.getCentreY() }));
+        g.setColour(DivergeTheme::text);
+        g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre({ fill.getRight(), fill.getCentreY() }));
+        if (displayedProgress < 0.08f && !DivergeTheme::reducedMotion())
+        {
+            // Indeterminate shimmer while the engine warms up.
+            const auto phase = static_cast<float>(std::fmod(
+                juce::Time::getMillisecondCounterHiRes() * 0.00055, 1.0));
+            const auto sweepX = bar.getX() + phase * (bar.getWidth() - 60.0f);
+            g.setGradientFill({ juce::Colours::transparentBlack, sweepX, 0.0f,
+                                DivergeTheme::exploration.withAlpha(0.35f), sweepX + 30.0f, 0.0f, false });
+            g.fillRoundedRectangle(juce::Rectangle<float>(sweepX, bar.getY(), 60.0f, bar.getHeight()), 2.5f);
+        }
+    }
+}
+
+void DivergeAudioProcessorEditor::paintOverChildren(juce::Graphics& g)
+{
     if (dragHover)
     {
-        g.setColour(DivergeTheme::exploration.withAlpha(0.12f));
-        g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(10.0f), 14.0f);
+        const auto zone = getLocalBounds().toFloat().reduced(10.0f);
+        g.setColour(DivergeTheme::exploration.withAlpha(0.08f));
+        g.fillRoundedRectangle(zone, 14.0f);
+        juce::Path outline;
+        outline.addRoundedRectangle(zone, 14.0f);
+        juce::Path dashed;
+        const float dashes[] = { 8.0f, 6.0f };
+        juce::PathStrokeType(2.0f).createDashedStroke(dashed, outline, dashes, 2);
         g.setColour(DivergeTheme::exploration);
-        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(10.0f), 14.0f, 2.0f);
+        g.fillPath(dashed);
+        const auto hint = getLocalBounds().withSizeKeepingCentre(300, 44).toFloat();
+        g.setColour(DivergeTheme::raised.withAlpha(0.96f));
+        g.fillRoundedRectangle(hint, 22.0f);
+        g.setColour(DivergeTheme::exploration.withAlpha(0.6f));
+        g.drawRoundedRectangle(hint, 22.0f, 1.2f);
+        g.setColour(DivergeTheme::text);
+        g.setFont(DivergeTheme::bodyBold(14.0f));
+        g.drawText("Drop to set your source", hint, juce::Justification::centred, false);
     }
-    if (settingsPanel.isVisible())
+    if (transitionAlpha > 0.0f && transitionImage.isValid())
     {
-        g.setColour(DivergeTheme::canvas.withAlpha(0.92f));
-        g.fillRect(settingsPanel.getBounds());
-    }
-    if (recentPanel.isVisible())
-    {
-        g.setColour(DivergeTheme::canvas.withAlpha(0.97f));
-        g.fillRoundedRectangle(recentPanel.getBounds().toFloat(), DivergeTheme::radius);
-        g.setColour(DivergeTheme::edge);
-        g.drawRoundedRectangle(recentPanel.getBounds().toFloat().reduced(0.5f), DivergeTheme::radius, 1.0f);
-    }
-    if (audioProcessor.generation().isActive() && progressLabel.isVisible())
-    {
-        auto bar = progressLabel.getBounds().toFloat().removeFromBottom(3.0f).reduced(20.0f, 0.0f);
-        g.setColour(DivergeTheme::edge); g.fillRoundedRectangle(bar, 1.5f);
-        g.setColour(DivergeTheme::exploration);
-        g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * displayedProgress), 1.5f);
+        g.setOpacity(transitionAlpha);
+        g.drawImageAt(transitionImage, 0, 0);
+        g.setOpacity(1.0f);
     }
 }
 
 void DivergeAudioProcessorEditor::resized()
 {
+    if (getWidth() != backgroundImage.getWidth() || getHeight() != backgroundImage.getHeight())
+        renderBackground();
+
+    scrim.setBounds(getLocalBounds());
+    const auto toastY = (!showPrepare && !settingsPanel.isVisible())
+                            ? getHeight() - 24 - 154 - 64
+                            : getHeight() - 84;
+    toast.setBounds(getLocalBounds()
+                        .withSizeKeepingCentre(juce::jmin(620, getWidth() - 96), 54)
+                        .withY(toastY));
+
     auto area = getLocalBounds().reduced(24);
     auto header = area.removeFromTop(40);
-    brandLabel.setBounds(header.removeFromLeft(128));
-    promiseLabel.setBounds(header.removeFromLeft(470));
+    header.removeFromLeft(26);
+    brandLabel.setBounds(header.removeFromLeft(126));
+    promiseLabel.setBounds(header.removeFromLeft(446));
     settingsButton.setBounds(header.removeFromRight(44));
     header.removeFromRight(8);
     localBadge.setBounds(header.removeFromRight(82));
     area.removeFromTop(14);
+
+    const auto drawerWidth = juce::jmin(460, getWidth() - 72);
+    recentTargetBounds = { getWidth() - drawerWidth - 24, 132, drawerWidth, getHeight() - 156 };
+    recentPanel.setSize(recentTargetBounds.getWidth(), recentTargetBounds.getHeight());
+    positionRecentPanel();
+    {
+        auto recent = recentPanel.getLocalBounds().reduced(18);
+        auto recentHeader = recent.removeFromTop(40);
+        recentTitle.setBounds(recentHeader.removeFromLeft(220));
+        recentClose.setBounds(recentHeader.removeFromRight(74));
+        recent.removeFromTop(10);
+        const auto count = static_cast<int>(recentCards.size());
+        const auto cardHeight = juce::jmax(72, (recent.getHeight() - 8 * (count - 1)) / count);
+        for (auto& card : recentCards)
+        {
+            card->setBounds(recent.removeFromTop(cardHeight));
+            recent.removeFromTop(8);
+        }
+    }
 
     if (settingsPanel.isVisible())
     {
@@ -614,32 +799,20 @@ void DivergeAudioProcessorEditor::resized()
         widerButton.setBounds(secondary.removeFromLeft(104));
         shortcutLabel.setBounds(secondary);
     }
-    toastLabel.setBounds(getLocalBounds().withSizeKeepingCentre(420, 38).translated(0, getHeight() / 2 - 42));
-    toastLabel.toFront(false);
-    if (recentPanel.isVisible())
-    {
-        const auto drawerWidth = juce::jmin(460, getWidth() - 72);
-        recentPanel.setBounds(getWidth() - drawerWidth - 24, 132, drawerWidth, getHeight() - 156);
-        auto recent = recentPanel.getLocalBounds().reduced(18);
-        auto recentHeader = recent.removeFromTop(40);
-        recentTitle.setBounds(recentHeader.removeFromLeft(220));
-        recentClose.setBounds(recentHeader.removeFromRight(74));
-        recent.removeFromTop(10);
-        const auto count = static_cast<int>(recentCards.size());
-        const auto cardHeight = juce::jmax(72, (recent.getHeight() - 8 * (count - 1)) / count);
-        for (auto& card : recentCards)
-        {
-            card->setBounds(recent.removeFromTop(cardHeight));
-            recent.removeFromTop(8);
-        }
-        recentPanel.toFront(false);
-    }
+}
+
+void DivergeAudioProcessorEditor::beginViewTransition()
+{
+    if (DivergeTheme::reducedMotion() || getWidth() <= 0 || !isShowing()) return;
+    transitionImage = createComponentSnapshot(getLocalBounds());
+    transitionAlpha = 1.0f;
 }
 
 void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
 {
+    if (showPrepare != visible) beginViewTransition();
     showPrepare = visible;
-    if (visible) recentPanel.setVisible(false);
+    if (visible) closeRecentImmediately();
     const auto generating = audioProcessor.generation().isActive();
     for (auto* component : std::initializer_list<juce::Component*> {
              &sourceSection, sourceCard.get(), &recordButton, &directionSection, directionCard.get(),
@@ -662,7 +835,8 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
 
 void DivergeAudioProcessorEditor::setSettingsVisible(bool visible)
 {
-    if (visible) recentPanel.setVisible(false);
+    if (settingsPanel.isVisible() != visible) beginViewTransition();
+    if (visible) closeRecentImmediately();
     settingsPanel.setVisible(visible);
     if (visible) settingsPanel.toFront(false);
     resized();
@@ -717,14 +891,21 @@ void DivergeAudioProcessorEditor::chooseAudio(int slot)
                          });
 }
 
+void DivergeAudioProcessorEditor::refreshSlotCard(int slot)
+{
+    const auto& file = audioSlots[static_cast<size_t>(slot)];
+    const auto heading = file.existsAsFile() ? file.getFileName() : juce::String();
+    if (slot == 0)
+        sourceCard->setAudio(heading, "Drop, record, or choose a source", file);
+    else if (slot == 1)
+        directionCard->setAudio(heading, "Add an optional reference to pull toward", file);
+}
+
 void DivergeAudioProcessorEditor::setAudioSlot(int slot, const juce::File& file)
 {
     audioSlots[static_cast<size_t>(slot)] = file;
     workflow.audioSlots[static_cast<size_t>(slot)] = file;
-    if (slot == 0)
-        sourceCard->setAudio("Source", "Drop, record, or choose audio", file);
-    else if (slot == 1)
-        directionCard->setAudio("Direction", "Add an optional reference", file);
+    if (slot <= 1) refreshSlotCard(slot);
     workflow.view = audioSlots[0].existsAsFile() ? WorkflowViewState::ready : WorkflowViewState::needsSetup;
     saveSettings();
 }
@@ -872,6 +1053,7 @@ void DivergeAudioProcessorEditor::startGeneration()
     generateButton.setEnabled(false);
     generateButton.setButtonText("Creating...");
     cancelButton.setVisible(true);
+    progressLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     progressLabel.setText("Preparing your source", juce::dontSendNotification);
     displayedProgress = 0.02f;
     repaint();
@@ -897,6 +1079,7 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
             card.setAudio(juce::String(index + 1).paddedLeft('0', 2), "Missing audio", candidate->file);
             card.setSupportingText(candidate->explanation);
             card.setDraggable(true);
+            if (!sameRun && isShowing()) card.beginEntrance(index);
         }
     }
     workflow.activeRunId = run.getFileName();
@@ -1080,12 +1263,45 @@ void DivergeAudioProcessorEditor::refreshRecentRuns()
     }
 }
 
+void DivergeAudioProcessorEditor::positionRecentPanel()
+{
+    if (recentTargetBounds.isEmpty()) return;
+    const auto eased = 1.0f - std::pow(1.0f - recentSlide, 3.0f);
+    const auto hiddenX = static_cast<float>(getWidth() + 8);
+    const auto x = juce::jmap(eased, hiddenX, static_cast<float>(recentTargetBounds.getX()));
+    recentPanel.setTopLeftPosition(juce::roundToInt(x), recentTargetBounds.getY());
+}
+
+void DivergeAudioProcessorEditor::closeRecentImmediately()
+{
+    recentTarget = false;
+    recentSlide = 0.0f;
+    recentPanel.setVisible(false);
+    scrim.setVisible(false);
+}
+
 void DivergeAudioProcessorEditor::setRecentVisible(bool visible)
 {
-    if (visible) refreshRecentRuns();
-    recentPanel.setVisible(visible);
-    if (visible) recentPanel.toFront(false);
-    resized();
+    recentTarget = visible;
+    if (visible)
+    {
+        refreshRecentRuns();
+        recentPanel.setVisible(true);
+        scrim.setVisible(true);
+        scrim.setAlpha(recentSlide);
+        scrim.toFront(false);
+        recentPanel.toFront(false);
+        toast.toFront(false);
+        if (DivergeTheme::reducedMotion())
+        {
+            recentSlide = 1.0f;
+            scrim.setAlpha(1.0f);
+        }
+        resized();
+        positionRecentPanel();
+    }
+    else if (DivergeTheme::reducedMotion())
+        closeRecentImmediately();
     repaint();
 }
 
@@ -1112,11 +1328,7 @@ void DivergeAudioProcessorEditor::updateResultVisibility()
 
 void DivergeAudioProcessorEditor::showToast(const juce::String& text)
 {
-    toastLabel.setText(text, juce::dontSendNotification);
-    toastLabel.setAlpha(1.0f);
-    toastLabel.setVisible(true);
-    toastLabel.toFront(false);
-    toastTicks = 90;
+    toast.show(text);
 }
 
 bool DivergeAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
@@ -1245,8 +1457,8 @@ void DivergeAudioProcessorEditor::restoreSettings()
     styleEditor.setText(workflow.direction, false);
     showDirectionText = workflow.direction.isNotEmpty();
     addDirectionButton.setButtonText(showDirectionText ? "- Hide direction" : "+ Add direction");
-    sourceCard->setAudio("Source", "Drop, record, or choose audio", audioSlots[0]);
-    directionCard->setAudio("Direction", "Add an optional reference", audioSlots[1]);
+    refreshSlotCard(0);
+    refreshSlotCard(1);
     studioStatus.setText(juce::File(pythonEditor.getText()).existsAsFile() && juce::File(modelsEditor.getText()).isDirectory()
         ? "STUDIO\nLocal engine and models are ready."
         : "STUDIO\nSetup needs attention in Advanced diagnostics.", juce::dontSendNotification);
@@ -1276,11 +1488,44 @@ void DivergeAudioProcessorEditor::saveSettings()
 void DivergeAudioProcessorEditor::timerCallback()
 {
     pollCriticProcess();
+
+    if (snapshotTicks > 0 && --snapshotTicks == 0)
+    {
+        const auto image = createComponentSnapshot(getLocalBounds());
+        snapshotFile.deleteFile();
+        juce::FileOutputStream stream(snapshotFile);
+        juce::PNGImageFormat png;
+        if (stream.openedOk()) png.writeImageToStream(image, stream);
+        if (auto* app = juce::JUCEApplicationBase::getInstance()) app->systemRequestedQuit();
+    }
+
+    if (transitionAlpha > 0.0f)
+    {
+        transitionAlpha = juce::jmax(0.0f, transitionAlpha - 0.09f);
+        if (transitionAlpha <= 0.0f) transitionImage = {};
+        repaint();
+    }
+    const auto slideTarget = recentTarget ? 1.0f : 0.0f;
+    if (recentSlide != slideTarget)
+    {
+        recentSlide = DivergeTheme::approach(recentSlide, slideTarget, 0.24f);
+        positionRecentPanel();
+        scrim.setAlpha(recentSlide);
+        if (recentSlide <= 0.002f && !recentTarget)
+        {
+            recentPanel.setVisible(false);
+            scrim.setVisible(false);
+        }
+    }
+    if (recentPanel.isVisible())
+        for (auto& card : recentCards) card->advanceAnimation();
+
     if (fixtureMode == "generating" || fixtureMode == "error")
     {
         sourceCard->advanceAnimation();
         directionCard->advanceAnimation();
         for (auto& card : candidateCards) card->advanceAnimation();
+        if (fixtureMode == "generating") repaint(progressLabel.getBounds().expanded(8, 8));
         return;
     }
     const auto job = audioProcessor.generation().snapshot();
@@ -1299,6 +1544,7 @@ void DivergeAudioProcessorEditor::timerCallback()
         {
             workflow.view = WorkflowViewState::recoverableError;
             progressLabel.setText(friendlyError(job.error), juce::dontSendNotification);
+            progressLabel.setColour(juce::Label::textColourId, DivergeTheme::danger);
             showToast(friendlyError(job.error));
         }
         else if (job.status == JobRunner::Status::cancelled)
@@ -1324,11 +1570,6 @@ void DivergeAudioProcessorEditor::timerCallback()
     sourceCard->advanceAnimation();
     directionCard->advanceAnimation();
     if (!audioProcessor.isCapturing() && recordButton.getButtonText() == "Stop") toggleCapture();
-    if (toastTicks > 0)
-    {
-        --toastTicks;
-        if (toastTicks < 15) toastLabel.setAlpha(static_cast<float>(toastTicks) / 15.0f);
-        if (toastTicks == 0) toastLabel.setVisible(false);
-    }
-    repaint();
+    if (active && progressLabel.isVisible())
+        repaint(progressLabel.getBounds().expanded(8, 8));
 }

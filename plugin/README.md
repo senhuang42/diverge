@@ -51,4 +51,6 @@ instance. Rapid decisions are queued and learned locally. Closing only the edito
 an active job; destroying the plugin instance cleanly cancels its child process.
 
 For deterministic UI review without running models, set `DIVERGE_UI_FIXTURE` to `empty`,
-`ready`, `generating`, `results`, `recent`, or `error` before opening the Standalone build.
+`ready`, `generating`, `results`, `recent`, `map`, `settings`, or `error` before opening the
+Standalone build. Set `DIVERGE_UI_SNAPSHOT=/path/to/out.png` to write a PNG of the editor
+about a second after launch and quit, and `DIVERGE_REDUCED_MOTION=1` to disable animation.

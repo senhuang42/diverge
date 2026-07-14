@@ -30,6 +30,7 @@ public:
     ~DivergeAudioProcessorEditor() override;
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     bool keyPressed(const juce::KeyPress&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
@@ -46,6 +47,7 @@ private:
     void setAdvancedVisible(bool visible);
     void chooseAudio(int slot);
     void setAudioSlot(int slot, const juce::File&);
+    void refreshSlotCard(int slot);
     void toggleCapture();
     void togglePreview(const juce::File&, int candidateRank = 0, bool source = false);
     void seekPreview(const juce::File&, double proportion, int candidateRank = 0, bool source = false);
@@ -62,6 +64,10 @@ private:
     void adjustRange(int delta);
     void refreshRecentRuns();
     void setRecentVisible(bool visible);
+    void closeRecentImmediately();
+    void positionRecentPanel();
+    void beginViewTransition();
+    void renderBackground();
     void saveRunDecisions();
     void restoreRunDecisions(bool sameRun);
     void updateResultVisibility();
@@ -97,9 +103,17 @@ private:
     bool dragHover = false;
     bool keptOnly = false;
     juce::String fixtureMode;
-    int toastTicks = 0;
+    juce::File snapshotFile;
+    int snapshotTicks = -1;
     float displayedProgress = 0.0f;
     JobRunner::Status lastJobStatus = JobRunner::Status::idle;
+
+    juce::Image backgroundImage;
+    juce::Image transitionImage;
+    float transitionAlpha = 0.0f;
+    float recentSlide = 0.0f;
+    bool recentTarget = false;
+    juce::Rectangle<int> recentTargetBounds;
 
     juce::Label brandLabel;
     juce::Label promiseLabel;
@@ -146,15 +160,16 @@ private:
     juce::TextButton tighterButton { "Tighter next" };
     juce::TextButton widerButton { "Wider next" };
     juce::Label shortcutLabel;
-    juce::Label toastLabel;
+    ToastOverlay toast;
+    ScrimOverlay scrim;
 
-    juce::Component recentPanel;
+    PanelSurface recentPanel;
     juce::Label recentTitle;
     juce::TextButton recentClose { "Close" };
     std::array<std::unique_ptr<WaveformCard>, 5> recentCards;
     std::array<juce::File, 5> recentRunDirectories;
 
-    juce::Component settingsPanel;
+    PanelSurface settingsPanel;
     juce::Label settingsTitle;
     juce::TextButton settingsClose { "Done" };
     juce::Label studioStatus;
