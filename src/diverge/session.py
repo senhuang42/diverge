@@ -15,8 +15,10 @@ from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
 from .novelty import novelty_scores, recent_kept_embeddings, self_novelty_scores
 from .select import Candidate, select_candidates
-from .taste.features import CandidateContext, audio_descriptors
+from .taste.events import TasteEventStore
+from .taste.features import CandidateContext, audio_descriptors, descriptor_scores
 from .taste.model import load_or_neutral
+from .taste.profile import enrich_prompt, infer_descriptors
 
 
 def _style_hint(config: RunConfig) -> str:
@@ -41,6 +43,18 @@ def run_session(
     progress=print,
 ) -> Path:
     source, sr = load_audio(config.source)
+    taste_model, taste_warning = load_or_neutral(config.taste_model_path)
+    taste_events = TasteEventStore(config.taste_events_path).load(effective=True)
+    hypotheses = infer_descriptors(taste_events)
+    base_prompt = _style_hint(config)
+    prompt, prompt_additions = enrich_prompt(
+        base_prompt,
+        hypotheses,
+        evidence=taste_model.effective_count,
+        confidence=1 - np.exp(-taste_model.effective_count / 8),
+        explicit_style_hint=bool(config.style_text_hint.strip()),
+        enabled=config.prompt_enrichment_enabled,
+    )
     reference_embeddings = embedder.embed_batch([path for path, _ in config.references])
     if len(reference_embeddings):
         weights = np.asarray([weight for _, weight in config.references], dtype=np.float32)
@@ -54,7 +68,7 @@ def run_session(
         source,
         sr,
         style_embedding,
-        _style_hint(config),
+        prompt,
         config.transform,
         config.duration_s,
         config.seed,
@@ -77,7 +91,6 @@ def run_session(
     self_novelty = self_novelty_scores(
         candidate_embeddings, recent_kept_embeddings(config.choices_path)
     )
-    taste_model, taste_warning = load_or_neutral(config.taste_model_path)
     legacy_taste = taste_scores(candidate_embeddings, config.critic_model)
     candidates = []
     contexts = []
@@ -169,6 +182,9 @@ def run_session(
                 "taste_evidence": round(candidate.taste_evidence, 6),
                 "taste_mode": candidate.taste_mode,
                 "taste_factors": candidate.taste_factors,
+                "descriptors": descriptor_scores(
+                    contexts[candidate.index].spectral, contexts[candidate.index].temporal
+                ),
                 "effective_taste_weight": candidate.effective_taste_weight,
                 "role": candidate.role,
                 "utility": candidate.utility,
@@ -199,7 +215,9 @@ def run_session(
             "confidence": round(1 - np.exp(-taste_model.effective_count / 8), 6),
             "opinion": config.opinion,
             "warning": taste_warning,
-            "prompt_additions": [],
+            "prompt_base": base_prompt,
+            "prompt_used": prompt,
+            "prompt_additions": prompt_additions,
         },
         "candidates": records,
     }

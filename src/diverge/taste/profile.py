@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .events import TasteEventStore
+from .events import TasteEvent, TasteEventStore
 from .model import TasteModel
 
 DESCRIPTORS: dict[str, tuple[str, ...]] = {
@@ -89,6 +89,46 @@ def export_profile(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(profile_dict(model, events_path), indent=2))
     return target
+
+
+def profile_settings(events_path: str | Path = "taste/events.jsonl") -> dict[str, Any]:
+    settings: dict[str, Any] = {"learning_enabled": True, "opinion": None}
+    for event in TasteEventStore(events_path).load():
+        if event.event_type == "profile_edit":
+            settings.update(event.metadata)
+    return settings
+
+
+def edit_profile(events_path: str | Path = "taste/events.jsonl", **changes: Any) -> TasteEvent:
+    return TasteEventStore(events_path).append(
+        TasteEvent(event_type="profile_edit", label="keep", strength=0, metadata=changes)
+    )
+
+
+def reset_profile(events_path: str | Path = "taste/events.jsonl") -> TasteEvent:
+    return edit_profile(events_path, reset=True)
+
+
+def training_events(events_path: str | Path = "taste/events.jsonl") -> list[TasteEvent]:
+    events = TasteEventStore(events_path).load()
+    last_reset = -1
+    for index, event in enumerate(events):
+        if event.event_type == "profile_edit" and event.metadata.get("reset"):
+            last_reset = index
+    return [event for event in events[last_reset + 1 :] if event.event_type != "profile_edit"]
+
+
+def import_model(source: str | Path, target: str | Path = "taste/model.joblib") -> Path:
+    """Validate then atomically re-save a portable profile model."""
+    return TasteModel.load(source).save(target)
+
+
+def export_model(
+    source: str | Path = "taste/model.joblib",
+    target: str | Path = "taste/profile.joblib",
+) -> Path:
+    """Create an independently loadable, validated portable prediction profile."""
+    return TasteModel.load(source).save(target)
 
 
 def enrich_prompt(

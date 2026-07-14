@@ -12,3 +12,6 @@ data/cc0/
 plugin/build/
 .coverage
 taste/reports/
+taste/events.jsonl
+taste/*.joblib
+taste/profile.json

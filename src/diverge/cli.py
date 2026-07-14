@@ -12,9 +12,14 @@ from .critic import add_choice, choice_count, train_critic  # noqa: E402
 from .embed import Embedder  # noqa: E402
 from .generator import MockGenerator, StableAudioGenerator  # noqa: E402
 from .session import run_session  # noqa: E402
-from .taste.events import TasteEventStore, migrate_v1  # noqa: E402
+from .taste.events import (  # noqa: E402
+    CandidateRecord,
+    TasteEvent,
+    TasteEventStore,
+    migrate_v1,
+)
 from .taste.model import TasteModel  # noqa: E402
-from .taste.profile import export_profile  # noqa: E402
+from .taste.profile import export_profile, training_events  # noqa: E402
 
 
 def _reference(value: str) -> tuple[Path, float]:
@@ -77,6 +82,17 @@ def _parser() -> argparse.ArgumentParser:
     migrate = taste_commands.add_parser("migrate")
     migrate.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     migrate.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    taste_add = taste_commands.add_parser("add")
+    taste_add.add_argument("wav", type=Path)
+    taste_add.add_argument("label", choices=("love", "keep", "discard", "export"))
+    taste_add.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    taste_add.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
+    taste_add.add_argument("--models-dir", type=Path, default=Path("models"))
+    taste_add.add_argument("--batch-id")
+    taste_undo = taste_commands.add_parser("undo")
+    taste_undo.add_argument("event_id")
+    taste_undo.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    taste_undo.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
     taste_train = taste_commands.add_parser("train")
     taste_train.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
     taste_train.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
@@ -129,6 +145,28 @@ def main(argv: list[str] | None = None) -> int:
         store = TasteEventStore(args.events)
         if args.taste_command == "migrate":
             print(json.dumps(migrate_v1(args.choices, args.events), indent=2))
+        elif args.taste_command == "add":
+            embedding = Embedder(model_path=args.models_dir / "clap-htsat-unfused").embed_file(
+                args.wav
+            )
+            event = store.append(
+                TasteEvent(
+                    event_type="export" if args.label == "export" else "absolute",
+                    label=args.label,
+                    candidate_a=CandidateRecord.from_embedding(args.wav, embedding),
+                    batch_id=args.batch_id,
+                )
+            )
+            model = TasteModel()
+            report = model.fit(training_events(args.events))
+            model.save(args.model)
+            print(json.dumps({"event_id": event.event_id, **report.__dict__}, indent=2))
+        elif args.taste_command == "undo":
+            event = store.undo(args.event_id)
+            model = TasteModel()
+            report = model.fit(training_events(args.events))
+            model.save(args.model)
+            print(json.dumps({"event_id": event.event_id, **report.__dict__}, indent=2))
         elif args.taste_command == "status":
             events = store.load(effective=True)
             print(
@@ -144,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.taste_command == "train":
             model = TasteModel()
-            report = model.fit(store.load())
+            report = model.fit(training_events(args.events))
             model.save(args.model)
             print(json.dumps(report.__dict__, indent=2))
         elif args.taste_command == "evaluate":

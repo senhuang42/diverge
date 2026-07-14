@@ -112,9 +112,11 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
     for (auto* component : std::initializer_list<juce::Component*> {
              &titleLabel, &tasteLabel, &sourceButton, &recordButton, &grooveLock, &melodyLock,
              &timbreLock, &transformSlider, &spreadSlider, &driftSlider, &styleEditor,
-             &transformLabel, &spreadLabel, &driftLabel, &fastMode, &generateButton,
+             &opinionSlider, &transformLabel, &spreadLabel, &driftLabel, &opinionLabel,
+             &fastMode, &generateButton,
              &cancelButton, &progressLabel, &map, &auditionButton, &keepButton,
-             &discardButton, &dragButton, &candidateDetail, &settingsButton, &settingsPanel })
+             &loveButton, &discardButton, &undoButton, &dragButton, &candidateDetail,
+             &settingsButton, &settingsPanel })
         addAndMakeVisible(component);
     for (auto& button : referenceButtons) addAndMakeVisible(button);
     for (auto& slider : referenceWeights) addAndMakeVisible(slider);
@@ -135,10 +137,12 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
     configureKnob(transformSlider, 45);
     configureKnob(spreadSlider, 60);
     configureKnob(driftSlider, 35);
+    configureKnob(opinionSlider, 50);
     transformLabel.setText("TRANSFORM", juce::dontSendNotification);
     spreadLabel.setText("SPREAD", juce::dontSendNotification);
     driftLabel.setText("DRIFT", juce::dontSendNotification);
-    for (auto* label : { &transformLabel, &spreadLabel, &driftLabel })
+    opinionLabel.setText("OPINION", juce::dontSendNotification);
+    for (auto* label : { &transformLabel, &spreadLabel, &driftLabel, &opinionLabel })
         label->setJustificationType(juce::Justification::centred);
     fastMode.setToggleState(true, juce::dontSendNotification);
     styleEditor.setTextToShowWhenEmpty("Optional style hint (e.g. dry analog drum loop)", juce::Colours::grey);
@@ -158,16 +162,29 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
         if (selectedCandidate > 0 && audioProcessor.loadPreview(candidates[static_cast<size_t>(selectedCandidate - 1)]))
             audioProcessor.playPreview();
     };
+    loveButton.onClick = [this] { recordDecision("love"); };
     keepButton.onClick = [this] { recordDecision("keep"); };
     discardButton.onClick = [this] { recordDecision("discard"); };
+    undoButton.onClick = [this]
+    {
+        if (selectedCandidate <= 0) return;
+        const auto eventId = lastTasteEventIds[static_cast<size_t>(selectedCandidate - 1)];
+        if (eventId.isEmpty())
+        {
+            candidateDetail.setText("Nothing to undo for this candidate", juce::dontSendNotification);
+            return;
+        }
+        runCriticCommand({ "undo", eventId, "--events", tasteEventsFile().getFullPathName(),
+                           "--model", tasteModelFile().getFullPathName() });
+    };
     dragButton.onClick = [this]
     {
         if (selectedCandidate > 0)
             juce::DragAndDropContainer::performExternalDragDropOfFiles(
                 { candidates[static_cast<size_t>(selectedCandidate - 1)].getFullPathName() }, false, this);
     };
-    auditionButton.setEnabled(false); keepButton.setEnabled(false);
-    discardButton.setEnabled(false); dragButton.setEnabled(false);
+    auditionButton.setEnabled(false); loveButton.setEnabled(false); keepButton.setEnabled(false);
+    discardButton.setEnabled(false); undoButton.setEnabled(false); dragButton.setEnabled(false);
 
     settingsButton.onClick = [this]
     {
@@ -244,12 +261,14 @@ void DivergeAudioProcessorEditor::resized()
     grooveLock.setBounds(locks.removeFromLeft(90)); melodyLock.setBounds(locks.removeFromLeft(90));
     timbreLock.setBounds(locks.removeFromLeft(90)); fastMode.setBounds(locks);
     auto knobs = left.removeFromTop(120);
-    const auto knobWidth = knobs.getWidth() / 3;
+    const auto knobWidth = knobs.getWidth() / 4;
     auto transformArea = knobs.removeFromLeft(knobWidth);
     transformLabel.setBounds(transformArea.removeFromTop(20)); transformSlider.setBounds(transformArea);
     auto spreadArea = knobs.removeFromLeft(knobWidth);
     spreadLabel.setBounds(spreadArea.removeFromTop(20)); spreadSlider.setBounds(spreadArea);
-    driftLabel.setBounds(knobs.removeFromTop(20)); driftSlider.setBounds(knobs);
+    auto driftArea = knobs.removeFromLeft(knobWidth);
+    driftLabel.setBounds(driftArea.removeFromTop(20)); driftSlider.setBounds(driftArea);
+    opinionLabel.setBounds(knobs.removeFromTop(20)); opinionSlider.setBounds(knobs);
     styleEditor.setBounds(left.removeFromTop(58));
     left.removeFromTop(8);
     auto actions = left.removeFromTop(38);
@@ -264,9 +283,11 @@ void DivergeAudioProcessorEditor::resized()
     candidateDetail.setBounds(detail.removeFromTop(42));
     auto decision = detail.removeFromTop(42);
     auditionButton.setBounds(decision.removeFromLeft(100)); decision.removeFromLeft(6);
-    keepButton.setBounds(decision.removeFromLeft(80)); decision.removeFromLeft(6);
-    discardButton.setBounds(decision.removeFromLeft(90)); decision.removeFromLeft(6);
-    dragButton.setBounds(decision.removeFromLeft(150));
+    loveButton.setBounds(decision.removeFromLeft(64)); decision.removeFromLeft(5);
+    keepButton.setBounds(decision.removeFromLeft(64)); decision.removeFromLeft(5);
+    discardButton.setBounds(decision.removeFromLeft(74)); decision.removeFromLeft(5);
+    undoButton.setBounds(decision.removeFromLeft(64)); decision.removeFromLeft(5);
+    dragButton.setBounds(decision.removeFromLeft(130));
 }
 
 bool DivergeAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
@@ -348,6 +369,9 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("library_index", libraryEditor.getText().trim());
     object->setProperty("critic_model", juce::File(modelsEditor.getText()).getChildFile("critic.joblib").getFullPathName());
     object->setProperty("choices_path", choicesFile().getFullPathName());
+    object->setProperty("taste_events_path", tasteEventsFile().getFullPathName());
+    object->setProperty("taste_model_path", tasteModelFile().getFullPathName());
+    object->setProperty("opinion", static_cast<int>(opinionSlider.getValue()));
     object->setProperty("style_text_hint", styleHint()); object->setProperty("lock_threshold", 0.55);
     object->setProperty("fast", fastMode.getToggleState());
     object->setProperty("generation_batch_size", 8);
@@ -438,7 +462,10 @@ void DivergeAudioProcessorEditor::selectCandidate(int rank)
     for (int index = 0; index < 8; ++index)
         candidateButtons[static_cast<size_t>(index)].setColour(juce::TextButton::buttonColourId,
             index + 1 == rank ? juce::Colours::orange : juce::Colour(panel));
-    auditionButton.setEnabled(true); keepButton.setEnabled(true); discardButton.setEnabled(true); dragButton.setEnabled(true);
+    auditionButton.setEnabled(true); loveButton.setEnabled(true); keepButton.setEnabled(true);
+    discardButton.setEnabled(true); undoButton.setEnabled(
+        lastTasteEventIds[static_cast<size_t>(rank - 1)].isNotEmpty());
+    dragButton.setEnabled(true);
 }
 
 void DivergeAudioProcessorEditor::runCriticCommand(const juce::StringArray& arguments)
@@ -450,7 +477,8 @@ void DivergeAudioProcessorEditor::runCriticCommand(const juce::StringArray& argu
     }
     decisionProcess = std::make_unique<juce::ChildProcess>();
     criticAction = arguments[0];
-    juce::StringArray command { pythonEditor.getText().trim(), "-m", "diverge.cli", "critic" };
+    criticCandidatePath = arguments.size() > 1 ? arguments[1] : juce::String();
+    juce::StringArray command { pythonEditor.getText().trim(), "-m", "diverge.cli", "taste" };
     command.addArray(arguments);
     decisionProcess->start(command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
 }
@@ -459,8 +487,9 @@ void DivergeAudioProcessorEditor::recordDecision(const juce::String& label)
 {
     if (selectedCandidate <= 0) return;
     runCriticCommand({ "add", candidates[static_cast<size_t>(selectedCandidate - 1)].getFullPathName(),
-                       label, "--choices", choicesFile().getFullPathName(), "--models-dir",
-                       modelsEditor.getText().trim() });
+                       label, "--events", tasteEventsFile().getFullPathName(), "--model",
+                       tasteModelFile().getFullPathName(), "--models-dir", modelsEditor.getText().trim(),
+                       "--batch-id", currentRun.getFileName() });
     candidateDetail.setText("Candidate " + juce::String(selectedCandidate) + " · " + label, juce::dontSendNotification);
 }
 
@@ -469,11 +498,21 @@ juce::File DivergeAudioProcessorEditor::choicesFile() const
     return juce::File(choicesEditor.getText().trim());
 }
 
+juce::File DivergeAudioProcessorEditor::tasteEventsFile() const
+{
+    return choicesFile().getParentDirectory().getChildFile("taste/events.jsonl");
+}
+
+juce::File DivergeAudioProcessorEditor::tasteModelFile() const
+{
+    return juce::File(modelsEditor.getText()).getParentDirectory().getChildFile("taste/model.joblib");
+}
+
 void DivergeAudioProcessorEditor::trainCritic()
 {
     tasteLabel.setText("taste model: updating…", juce::dontSendNotification);
-    runCriticCommand({ "train", "--choices", choicesFile().getFullPathName(), "--model",
-                       juce::File(modelsEditor.getText()).getChildFile("critic.joblib").getFullPathName() });
+    runCriticCommand({ "train", "--events", tasteEventsFile().getFullPathName(), "--model",
+                       tasteModelFile().getFullPathName() });
 }
 
 void DivergeAudioProcessorEditor::pollCriticProcess()
@@ -483,16 +522,31 @@ void DivergeAudioProcessorEditor::pollCriticProcess()
     decisionProcess.reset();
     if (criticAction == "add")
     {
-        ++choicesSinceTraining;
-        ++totalChoiceCount;
-        tasteLabel.setText("taste model: " + juce::String(totalChoiceCount) + " choices",
+        const auto parsed = juce::JSON::parse(output.substring(output.indexOfChar('{')));
+        totalChoiceCount = static_cast<int>(parsed.getProperty("observations", 0));
+        const auto eventId = parsed.getProperty("event_id", "").toString();
+        for (int index = 0; index < 8; ++index)
+            if (candidates[static_cast<size_t>(index)].getFullPathName() == criticCandidatePath)
+                lastTasteEventIds[static_cast<size_t>(index)] = eventId;
+        const auto confidence = static_cast<double>(parsed.getProperty("confidence", 0.0));
+        tasteLabel.setText("taste: " + juce::String(totalChoiceCount) + " events · confidence "
+                               + juce::String(static_cast<int>(confidence * 100.0)) + "% · v2",
                            juce::dontSendNotification);
+        if (selectedCandidate > 0)
+            undoButton.setEnabled(
+                lastTasteEventIds[static_cast<size_t>(selectedCandidate - 1)].isNotEmpty());
+    }
+    else if (criticAction == "undo")
+    {
+        for (auto& eventId : lastTasteEventIds)
+            if (eventId == criticCandidatePath) eventId.clear();
+        tasteLabel.setText("taste: decision undone · v2", juce::dontSendNotification);
     }
     else if (criticAction == "train")
     {
         const auto jsonStart = output.indexOfChar('{');
         const auto parsed = juce::JSON::parse(jsonStart >= 0 ? output.substring(jsonStart) : output);
-        const auto n = parsed.getProperty("n", 0);
+        const auto n = parsed.getProperty("observations", 0);
         totalChoiceCount = static_cast<int>(n);
         tasteLabel.setText("taste model: " + n.toString() + " choices",
                            juce::dontSendNotification);
@@ -504,8 +558,6 @@ void DivergeAudioProcessorEditor::pollCriticProcess()
         criticQueue.pop_front();
         runCriticCommand(next);
     }
-    else if (choicesSinceTraining >= 10)
-        trainCritic();
 }
 
 void DivergeAudioProcessorEditor::restoreSettings()
@@ -521,6 +573,7 @@ void DivergeAudioProcessorEditor::restoreSettings()
     libraryEditor.setText(state.getProperty("library", "").toString());
     choicesEditor.setText(state.getProperty("choices", project.getChildFile("choices.jsonl").getFullPathName()).toString());
     outputEditor.setText(state.getProperty("output", project.getChildFile("runs").getFullPathName()).toString());
+    opinionSlider.setValue(static_cast<double>(state.getProperty("opinion", 50)));
 }
 
 void DivergeAudioProcessorEditor::saveSettings()
@@ -531,6 +584,7 @@ void DivergeAudioProcessorEditor::saveSettings()
     state.setProperty("library", libraryEditor.getText().trim(), nullptr);
     state.setProperty("choices", choicesEditor.getText().trim(), nullptr);
     state.setProperty("output", outputEditor.getText().trim(), nullptr);
+    state.setProperty("opinion", opinionSlider.getValue(), nullptr);
 }
 
 void DivergeAudioProcessorEditor::timerCallback()

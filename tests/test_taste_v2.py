@@ -14,6 +14,8 @@ from diverge.taste.events import (
 from diverge.taste.features import CandidateContext, FeatureTransform
 from diverge.taste.feedback import choose_comparison, comparison_key
 from diverge.taste.model import TasteModel
+from diverge.taste.profile import enrich_prompt, export_model, import_model
+from diverge.taste.synthetic import PROFILE_NAMES, all_profiles
 
 
 def vector(index: int) -> np.ndarray:
@@ -138,3 +140,58 @@ def test_pairwise_ranker_and_active_pair_avoid_repeats() -> None:
     assert choose_comparison(contexts, hashes, model) == (0, 1)
     asked = {comparison_key(*hashes)}
     assert choose_comparison(contexts, hashes, model, asked) is None
+
+
+def test_multimode_positive_clusters_are_not_averaged() -> None:
+    events = []
+    for index in range(6):
+        events.append(event(10, "keep", f"mode-a-{index}"))
+        events.append(event(400, "keep", f"mode-b-{index}"))
+    events.extend([event(200, "discard", "negative-a"), event(201, "discard", "negative-b")])
+    model = TasteModel()
+    report = model.fit(events)
+    assert report.positive_modes == 2
+    prediction = model.score([CandidateContext(vector(10)), CandidateContext(vector(400))])
+    assert np.all(prediction.mean > 0.5)
+
+
+def test_prompt_enrichment_is_thresholded_and_explicit_hint_wins() -> None:
+    hypotheses = [
+        {"descriptor": "dark", "confidence": 0.9},
+        {"descriptor": "percussive", "confidence": 0.8},
+        {"descriptor": "unsupported wording", "confidence": 1.0},
+    ]
+    enriched, additions = enrich_prompt("loop", hypotheses, evidence=10, confidence=0.8)
+    assert enriched == "loop, dark, percussive"
+    assert additions == ["dark", "percussive"]
+    explicit, additions = enrich_prompt(
+        "explicit bright loop",
+        hypotheses,
+        evidence=10,
+        confidence=0.8,
+        explicit_style_hint=True,
+    )
+    assert explicit == "explicit bright loop"
+    assert additions == []
+
+
+def test_portable_model_import_reproduces_predictions(tmp_path: Path) -> None:
+    model = TasteModel()
+    model.fit([event(0, "keep"), event(1, "discard")])
+    source = model.save(tmp_path / "source.joblib")
+    portable = export_model(source, tmp_path / "portable.joblib")
+    imported = import_model(portable, tmp_path / "imported.joblib")
+    contexts = [CandidateContext(vector(0)), CandidateContext(vector(1))]
+    expected = TasteModel.load(source).score(contexts).mean
+    actual = TasteModel.load(imported).score(contexts).mean
+    assert np.allclose(expected, actual)
+
+
+def test_all_required_synthetic_profiles_are_deterministic() -> None:
+    profiles = all_profiles()
+    assert tuple(profiles) == PROFILE_NAMES
+    assert all(len(events) == 24 for events in profiles.values())
+    repeated = all_profiles()["low_band"]
+    assert [item.to_dict() for item in repeated] == [
+        item.to_dict() for item in profiles["low_band"]
+    ]

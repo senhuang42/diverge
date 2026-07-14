@@ -2,7 +2,7 @@
 
 Diverge is a local-first generative sampler for producers. It transforms source audio into
 a deliberately varied batch, steered by reference tracks, musical locks, library novelty,
-and a taste critic trained from local keep/discard decisions.
+and a contextual Taste v2 profile trained from explicit local decisions and comparisons.
 
 ## Status
 
@@ -30,7 +30,8 @@ uv run diverge run --source data/loop_a.wav --ref data/ref_a.wav:1 --fast
 Normal mode generates 32 candidates and selects eight. `--fast` uses four diffusion steps
 and a 16-candidate pool for iteration; pass `--n-oversample 32` to retain the full pool.
 
-Review a completed batch locally with clickable map points, numbered navigation, or j/k/y/n:
+Review a completed batch locally with clickable map points, numbered navigation, or the
+always-visible j/k/l/y/n/u shortcuts:
 
 ```bash
 uv run python -m review.app runs/<timestamp>
@@ -40,7 +41,36 @@ The JUCE plugin build and host workflow are documented in [plugin/README.md](plu
 
 All audio is loaded and written as 44.1 kHz stereo float WAV. Outputs live under `runs/`.
 
-## Explicit v1 non-goals
+## Local taste profile
+
+Taste v2 learns immediately from Love, Keep, and Discard decisions, supports optional
+pairwise comparisons, and records append-only events under `taste/events.jsonl`. Preference
+state, embeddings, model artifacts, and evaluation reports remain local and are ignored by
+git. Recent-keeps anti-repetition remains separate from preference prediction.
+
+```bash
+# Preserve every usable v1 choice without rewriting choices.jsonl
+uv run diverge taste migrate
+
+# Inspect, train, evaluate chronologically, and export an inspectable summary
+uv run diverge taste status
+uv run diverge taste train
+uv run diverge taste evaluate
+uv run diverge taste export-profile
+```
+
+Generation uses one immutable Taste v2 snapshot per batch. `--opinion 0` disables taste
+influence while explicit feedback can still be collected; higher values increase only the
+evidence- and confidence-supported component. Hard locks are applied first. When a full
+oversampled pool is available, eight results are divided between favorites, informative
+comparisons, exploration, and one novelty-oriented surprise.
+
+If `taste/model.joblib` is missing or incompatible, generation falls back to neutral scoring
+and records a warning in the manifest. The original `choices.jsonl` and
+`models/critic.joblib` remain valid rollback artifacts. Delete neither to reset Taste v2;
+use the review panel's reset action, which appends a recoverable history marker.
+
+## Explicit non-goals
 
 No real-time/audio-thread inference, Windows, AAX, negative-guidance steering, diffusion
 audio-embedding adapters, catalog training/LoRA, stem separation, cloud rendering, or

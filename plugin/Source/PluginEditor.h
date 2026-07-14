@@ -53,6 +53,8 @@ private:
     void recordDecision(const juce::String& label);
     void runCriticCommand(const juce::StringArray& arguments);
     juce::File choicesFile() const;
+    juce::File tasteEventsFile() const;
+    juce::File tasteModelFile() const;
     void trainCritic();
     void pollCriticProcess();
     void restoreSettings();
@@ -67,6 +69,8 @@ private:
     std::deque<juce::StringArray> criticQueue;
     int choicesSinceTraining = 0;
     int totalChoiceCount = 0;
+    juce::String criticCandidatePath;
+    std::array<juce::String, 8> lastTasteEventIds;
 
     juce::Label titleLabel;
     juce::Label tasteLabel;
@@ -82,9 +86,11 @@ private:
     juce::Slider transformSlider;
     juce::Slider spreadSlider;
     juce::Slider driftSlider;
+    juce::Slider opinionSlider;
     juce::Label transformLabel;
     juce::Label spreadLabel;
     juce::Label driftLabel;
+    juce::Label opinionLabel;
     juce::ToggleButton fastMode { "Fast mode" };
     juce::TextEditor styleEditor;
     juce::TextButton generateButton { "Generate" };
@@ -94,8 +100,10 @@ private:
     MapComponent map;
     std::array<juce::TextButton, 8> candidateButtons;
     juce::TextButton auditionButton { "Audition" };
+    juce::TextButton loveButton { "Love" };
     juce::TextButton keepButton { "Keep" };
     juce::TextButton discardButton { "Discard" };
+    juce::TextButton undoButton { "Undo" };
     juce::TextButton dragButton { "Drag WAV to DAW" };
     juce::Label candidateDetail;
 

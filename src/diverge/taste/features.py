@@ -102,23 +102,39 @@ class FeatureTransform:
             reference = np.zeros(EMBEDDING_SIZE, dtype=np.float32)
             ref_similarity = 0.0
 
+        candidate_projection = self._project(candidate)
+        source_difference = self._project(candidate - source)
+        reference_difference = (
+            self._project(candidate - reference)
+            if has_reference
+            else np.zeros(PROJECTED_SIZE, dtype=np.float32)
+        )
+
         group_values: list[tuple[str, np.ndarray, list[str]]] = [
             (
                 "candidate",
-                self._project(candidate),
+                candidate_projection,
                 [f"candidate_rp_{i}" for i in range(PROJECTED_SIZE)],
             ),
             (
                 "source_difference",
-                self._project(candidate - source),
+                source_difference,
                 [f"source_diff_rp_{i}" for i in range(PROJECTED_SIZE)],
             ),
             (
                 "reference_difference",
-                self._project(candidate - reference)
-                if has_reference
-                else np.zeros(PROJECTED_SIZE, dtype=np.float32),
+                reference_difference,
                 [f"reference_diff_rp_{i}" for i in range(PROJECTED_SIZE)],
+            ),
+            (
+                "source_interactions",
+                candidate_projection * source_difference,
+                [f"candidate_source_interaction_{i}" for i in range(PROJECTED_SIZE)],
+            ),
+            (
+                "reference_interactions",
+                candidate_projection * reference_difference,
+                [f"candidate_reference_interaction_{i}" for i in range(PROJECTED_SIZE)],
             ),
             (
                 "similarities",
@@ -170,7 +186,7 @@ class FeatureTransform:
             ),
         ]
         # Unit-normalize high-dimensional groups independently. Scalar descriptors retain scale.
-        for index in range(3):
+        for index in range(5):
             name, values, names = group_values[index]
             norm = float(np.linalg.norm(values))
             group_values[index] = (name, values / norm if norm else values, names)
@@ -246,3 +262,20 @@ def audio_descriptors(
         else 0.0,
     }
     return spectral, temporal
+
+
+def descriptor_scores(spectral: dict[str, float], temporal: dict[str, float]) -> dict[str, float]:
+    """Map measured audio attributes into the curated, versioned prompt vocabulary."""
+    centroid = float(np.clip(spectral.get("centroid", 0.5), 0, 1))
+    flatness = float(np.clip(spectral.get("flatness", 0.5), 0, 1))
+    onset = float(np.clip(temporal.get("onset_density", 0.0), 0, 1))
+    dynamics = float(np.clip(temporal.get("dynamic_range", 0.5), 0, 1))
+    return {
+        "dark": 1 - centroid,
+        "bright": centroid,
+        "percussive": onset,
+        "sparse": 1 - onset,
+        "raw": flatness,
+        "polished": 1 - flatness,
+        "compressed": 1 - dynamics,
+    }

@@ -11,7 +11,18 @@ from pathlib import Path
 from diverge.critic import add_choice, train_critic
 from diverge.embed import Embedder
 from diverge.taste.events import CandidateRecord, TasteEvent, TasteEventStore
-from diverge.taste.model import TasteModel
+from diverge.taste.model import TasteModel, load_or_neutral
+from diverge.taste.profile import (
+    edit_profile,
+    export_model,
+    export_profile,
+    import_model,
+    infer_descriptors,
+    profile_dict,
+    profile_settings,
+    reset_profile,
+    training_events,
+)
 
 
 @dataclass(frozen=True)
@@ -147,6 +158,8 @@ def record_taste_choice(
         raise ValueError("unsupported absolute taste label")
     path = candidate_path(bundle, candidate)
     config = bundle.manifest.get("config", {})
+    if not profile_settings(events_path).get("learning_enabled", True):
+        raise RuntimeError("taste learning is disabled in the local profile")
     source_path = config.get("source")
     source_embedding = (
         embedder.embed_file(Path(source_path)).tolist()
@@ -169,6 +182,7 @@ def record_taste_choice(
                 "lock_score": candidate.get("lock_score", 0.0),
                 **candidate.get("locks", {}),
             },
+            "descriptors": candidate.get("descriptors", {}),
         },
     )
     return TasteEventStore(events_path).append(
@@ -195,6 +209,8 @@ def record_pairwise_choice(
         return None
     if label not in {"prefer_a", "prefer_b", "neither"}:
         raise ValueError("unsupported pairwise label")
+    if not profile_settings(events_path).get("learning_enabled", True):
+        raise RuntimeError("taste learning is disabled in the local profile")
     a_path = candidate_path(bundle, candidate_a)
     b_path = candidate_path(bundle, candidate_b)
     config = bundle.manifest.get("config", {})
@@ -224,7 +240,7 @@ def record_pairwise_choice(
 
 def train_taste(events_path: str | Path, model_path: str | Path) -> dict:
     model = TasteModel()
-    report = model.fit(TasteEventStore(events_path).load())
+    report = model.fit(training_events(events_path))
     model.save(model_path)
     return report.__dict__
 
@@ -298,6 +314,65 @@ def build_app(
         gr.HTML(render_map_html(bundle.map_points))
         gr.HTML(render_navigation_html(bundle.candidates))
         status = gr.Markdown("Ready.")
+        profile_model, profile_warning = load_or_neutral(taste_model)
+        profile = profile_dict(profile_model, taste_events)
+        hypotheses = infer_descriptors(TasteEventStore(taste_events).load(effective=True))
+        hypothesis_text = ", ".join(item["phrase"] for item in hypotheses) or "not enough evidence"
+        with gr.Accordion("Taste profile", open=False):
+            gr.Markdown(
+                f"**Taste:** {profile_model.observation_count} events · "
+                f"confidence {profile['confidence']:.0%} · v2\n\n"
+                f"Editable hypotheses: **{hypothesis_text}**"
+                + (f"\n\nWarning: {profile_warning}" if profile_warning else "")
+            )
+            opinion = gr.Slider(
+                0,
+                100,
+                value=int(bundle.manifest.get("taste", {}).get("opinion", 50)),
+                step=1,
+                label="Opinion",
+            )
+            learning = gr.Checkbox(
+                value=bool(profile_settings(taste_events).get("learning_enabled", True)),
+                label="Enable explicit taste learning",
+            )
+            with gr.Row():
+                save_profile = gr.Button("Save profile settings")
+                reset = gr.Button("Reset taste")
+                export_button = gr.Button("Export profile")
+            import_file = gr.File(label="Import portable model", file_types=[".joblib"])
+
+            def save_settings(opinion_value: int, learning_value: bool) -> str:
+                edit_profile(
+                    taste_events,
+                    opinion=int(opinion_value),
+                    learning_enabled=bool(learning_value),
+                )
+                return "Taste profile settings saved locally."
+
+            def reset_settings() -> str:
+                reset_profile(taste_events)
+                TasteModel().save(taste_model)
+                return "Taste evidence reset with a recoverable history marker."
+
+            def export_settings() -> str:
+                summary = Path(taste_model).with_name("profile.json")
+                portable = Path(taste_model).with_name("profile.joblib")
+                export_profile(taste_model, taste_events, summary)
+                export_model(taste_model, portable)
+                return f"Profile exported locally to `{portable}` with summary `{summary}`."
+
+            def import_settings(upload: object) -> str:
+                if upload is None:
+                    return "Choose a .joblib profile first."
+                source = getattr(upload, "name", upload)
+                import_model(Path(str(source)), taste_model)
+                return "Portable taste model imported and validated."
+
+            save_profile.click(save_settings, inputs=[opinion, learning], outputs=status)
+            reset.click(reset_settings, outputs=status)
+            export_button.click(export_settings, outputs=status)
+            import_file.change(import_settings, inputs=import_file, outputs=status)
         latest_events: dict[int, str] = {}
         for candidate in bundle.candidates:
             rank = int(candidate["rank"])
