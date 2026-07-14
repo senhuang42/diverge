@@ -147,7 +147,7 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
     fastMode.setToggleState(true, juce::dontSendNotification);
     styleEditor.setTextToShowWhenEmpty("Optional style hint (e.g. dry analog drum loop)", juce::Colours::grey);
     generateButton.onClick = [this] { startGeneration(); };
-    cancelButton.onClick = [this] { job.cancel(); progressLabel.setText("Cancelled", juce::dontSendNotification); };
+    cancelButton.onClick = [this] { audioProcessor.generation().cancel(); };
     cancelButton.setEnabled(false);
 
     map.onCandidateSelected = [this](int rank) { selectCandidate(rank); };
@@ -205,6 +205,15 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
     for (auto* editor : { &pythonEditor, &modelsEditor, &libraryEditor, &choicesEditor, &outputEditor })
         editor->onFocusLost = [this] { saveSettings(); };
     restoreSettings();
+    if (workflow.activeRunId.isNotEmpty())
+    {
+        const auto restoredRun = juce::File(outputEditor.getText().trim()).getChildFile(workflow.activeRunId);
+        if (restoredRun.isDirectory())
+            loadRun(restoredRun);
+        else
+            progressLabel.setText("A previous run moved · choose a new output location in Settings",
+                                  juce::dontSendNotification);
+    }
     trainCritic();
     startTimerHz(5);
 }
@@ -212,7 +221,6 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
 DivergeAudioProcessorEditor::~DivergeAudioProcessorEditor()
 {
     saveSettings();
-    job.cancel();
     if (decisionProcess && decisionProcess->isRunning()) decisionProcess->kill();
 }
 
@@ -315,6 +323,7 @@ void DivergeAudioProcessorEditor::chooseAudio(int slot)
 void DivergeAudioProcessorEditor::setAudioSlot(int slot, const juce::File& file)
 {
     audioSlots[static_cast<size_t>(slot)] = file;
+    workflow.audioSlots[static_cast<size_t>(slot)] = file;
     if (slot == 0) sourceButton.setButtonText(file.getFileName());
     else referenceButtons[static_cast<size_t>(slot - 1)].setButtonText(file.getFileName());
 }
@@ -392,70 +401,37 @@ void DivergeAudioProcessorEditor::startGeneration()
                                 quotedPath(config), "--models-dir", modelsEditor.getText().trim() };
     generateButton.setEnabled(false); cancelButton.setEnabled(true);
     progressLabel.setText("Starting local generator…", juce::dontSendNotification);
-    juce::Component::SafePointer<DivergeAudioProcessorEditor> safeThis(this);
-    job.start(command, juce::File(outputEditor.getText().trim()),
-              [safeThis](const juce::String& progress)
-              {
-                  if (safeThis != nullptr)
-                      safeThis->progressLabel.setText(progress, juce::dontSendNotification);
-              },
-              [safeThis](const juce::File& run, const juce::String& error)
-              {
-                  if (safeThis == nullptr) return;
-                  safeThis->generateButton.setEnabled(true);
-                  safeThis->cancelButton.setEnabled(false);
-                  if (run.isDirectory())
-                  {
-                      safeThis->loadRun(run);
-                      safeThis->progressLabel.setText("Generation complete", juce::dontSendNotification);
-                  }
-                  else
-                      safeThis->progressLabel.setText(
-                          error.isNotEmpty() ? error : "No completed run found.",
-                          juce::dontSendNotification);
-              });
+    audioProcessor.generation().start(command, juce::File(outputEditor.getText().trim()));
 }
 
 void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
 {
     currentRun = run;
-    const auto mapValue = juce::JSON::parse(run.getChildFile("map.json"));
-    mapPoints.clear();
-    if (auto* rows = mapValue.getArray())
-        for (const auto& row : *rows)
-            if (auto* item = row.getDynamicObject())
-                mapPoints.push_back({ item->getProperty("kind").toString(), juce::File(item->getProperty("path").toString()),
-                                      static_cast<float>(item->getProperty("x")), static_cast<float>(item->getProperty("y")),
-                                      static_cast<int>(item->getProperty("rank")) });
+    loadedRun = RunModel::load(run);
+    mapPoints = loadedRun.mapPoints;
     map.setPoints(mapPoints);
-    const auto manifestValue = juce::JSON::parse(run.getChildFile("manifest.json"));
-    if (auto* manifest = manifestValue.getDynamicObject())
-        if (auto* rows = manifest->getProperty("candidates").getArray())
-            for (const auto& row : *rows)
-                if (auto* item = row.getDynamicObject())
-                {
-                    const auto rank = static_cast<int>(item->getProperty("rank"));
-                    if (rank < 1 || rank > 8) continue;
-                    const auto locks = item->getProperty("locks");
-                    candidateDescriptions[static_cast<size_t>(rank - 1)] =
-                        "Ref " + juce::String(static_cast<double>(item->getProperty("ref_fit")), 2)
-                        + " · Groove " + juce::String(static_cast<double>(locks.getProperty("groove", 0.0)), 2)
-                        + " · Novelty " + juce::String(static_cast<double>(item->getProperty("novelty")), 2)
-                        + " · Taste " + juce::String(static_cast<double>(item->getProperty("taste")), 2)
-                        + " · Utility " + juce::String(static_cast<double>(item->getProperty("utility")), 2);
-                }
+    for (const auto& candidate : loadedRun.candidates)
+        if (candidate.rank >= 1 && candidate.rank <= 8)
+            candidateDescriptions[static_cast<size_t>(candidate.rank - 1)] = candidate.explanation;
     for (int index = 0; index < 8; ++index)
     {
-        candidates[static_cast<size_t>(index)] = run.getChildFile("cand_" + juce::String(index + 1).paddedLeft('0', 2) + ".wav");
+        if (const auto* candidate = loadedRun.candidate(index + 1))
+            candidates[static_cast<size_t>(index)] = candidate->file;
         candidateButtons[static_cast<size_t>(index)].setEnabled(candidates[static_cast<size_t>(index)].existsAsFile());
     }
-    selectCandidate(1);
+    const auto candidateToRestore = workflow.selectedCandidate;
+    workflow.activeRunId = run.getFileName();
+    workflow.view = WorkflowViewState::results;
+    workflow.saveTo(audioProcessor.state());
+    selectCandidate(candidateToRestore >= 1 && candidateToRestore <= 8 ? candidateToRestore : 1);
 }
 
 void DivergeAudioProcessorEditor::selectCandidate(int rank)
 {
     if (rank < 1 || rank > 8 || !candidates[static_cast<size_t>(rank - 1)].existsAsFile()) return;
     selectedCandidate = rank; map.setSelectedRank(rank);
+    workflow.selectedCandidate = rank;
+    workflow.saveTo(audioProcessor.state());
     candidateDetail.setText("Candidate " + juce::String(rank) + " · "
                                 + candidateDescriptions[static_cast<size_t>(rank - 1)],
                             juce::dontSendNotification);
@@ -563,6 +539,7 @@ void DivergeAudioProcessorEditor::pollCriticProcess()
 void DivergeAudioProcessorEditor::restoreSettings()
 {
     auto& state = audioProcessor.state();
+    workflow.restoreFrom(state);
    #if defined(DIVERGE_PROJECT_ROOT)
     const auto project = juce::File(juce::String(DIVERGE_PROJECT_ROOT));
    #else
@@ -574,6 +551,18 @@ void DivergeAudioProcessorEditor::restoreSettings()
     choicesEditor.setText(state.getProperty("choices", project.getChildFile("choices.jsonl").getFullPathName()).toString());
     outputEditor.setText(state.getProperty("output", project.getChildFile("runs").getFullPathName()).toString());
     opinionSlider.setValue(static_cast<double>(state.getProperty("opinion", 50)));
+    audioSlots = workflow.audioSlots;
+    transformSlider.setValue(workflow.change);
+    spreadSlider.setValue(workflow.range);
+    grooveLock.setToggleState(workflow.preserveGroove, juce::dontSendNotification);
+    melodyLock.setToggleState(workflow.preserveMelody, juce::dontSendNotification);
+    timbreLock.setToggleState(workflow.preserveTimbre, juce::dontSendNotification);
+    styleEditor.setText(workflow.direction, false);
+    if (audioSlots[0].existsAsFile()) sourceButton.setButtonText(audioSlots[0].getFileName());
+    for (int index = 0; index < 2; ++index)
+        if (audioSlots[static_cast<size_t>(index + 1)].existsAsFile())
+            referenceButtons[static_cast<size_t>(index)].setButtonText(
+                audioSlots[static_cast<size_t>(index + 1)].getFileName());
 }
 
 void DivergeAudioProcessorEditor::saveSettings()
@@ -585,11 +574,32 @@ void DivergeAudioProcessorEditor::saveSettings()
     state.setProperty("choices", choicesEditor.getText().trim(), nullptr);
     state.setProperty("output", outputEditor.getText().trim(), nullptr);
     state.setProperty("opinion", opinionSlider.getValue(), nullptr);
+    workflow.audioSlots = audioSlots;
+    workflow.change = static_cast<int>(transformSlider.getValue());
+    workflow.range = static_cast<int>(spreadSlider.getValue());
+    workflow.preserveGroove = grooveLock.getToggleState();
+    workflow.preserveMelody = melodyLock.getToggleState();
+    workflow.preserveTimbre = timbreLock.getToggleState();
+    workflow.direction = styleHint();
+    workflow.selectedCandidate = selectedCandidate;
+    workflow.saveTo(state);
 }
 
 void DivergeAudioProcessorEditor::timerCallback()
 {
     pollCriticProcess();
+    const auto jobState = audioProcessor.generation().snapshot();
+    if (jobState.status != lastJobStatus || jobState.completed > 0)
+    {
+        lastJobStatus = jobState.status;
+        progressLabel.setText(jobState.error.isNotEmpty() ? jobState.error : jobState.message,
+                              juce::dontSendNotification);
+        const auto active = audioProcessor.generation().isActive();
+        generateButton.setEnabled(!active);
+        cancelButton.setEnabled(active);
+        if (jobState.status == JobRunner::Status::complete && jobState.run != currentRun)
+            loadRun(jobState.run);
+    }
     if (!audioProcessor.isCapturing() && recordButton.getButtonText().startsWith("Stop"))
         toggleCapture();
 }

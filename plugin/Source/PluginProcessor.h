@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <atomic>
+#include "JobRunner.h"
 
 class DivergeAudioProcessor final : public juce::AudioProcessor
 {
@@ -36,6 +37,7 @@ public:
     bool loadPreview(const juce::File& file);
     void playPreview();
     juce::ValueTree& state() noexcept { return pluginState; }
+    JobRunner& generation() noexcept { return generationService; }
 
 private:
     juce::AudioBuffer<float> captureBuffer;
@@ -48,6 +50,7 @@ private:
     int previewPosition = 0;
     std::atomic<bool> previewPlaying { false };
     juce::ValueTree pluginState { "DivergeState" };
+    JobRunner generationService;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DivergeAudioProcessor)
 };

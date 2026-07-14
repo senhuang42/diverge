@@ -7,31 +7,51 @@ JobRunner::~JobRunner()
     cancel();
 }
 
-bool JobRunner::start(const juce::StringArray& command,
-                      const juce::File& output,
-                      ProgressCallback progress,
-                      CompletionCallback completion)
+bool JobRunner::start(const juce::StringArray& command, const juce::File& output)
 {
     if (running.exchange(true))
         return false;
     pendingCommand = command;
     outputDirectory = output;
-    progressCallback = std::move(progress);
-    completionCallback = std::move(completion);
     bufferedOutput.clear();
     diagnosticOutput.clear();
     jobStartedAt = juce::Time::getCurrentTime();
+    updateSnapshot([](Snapshot& state)
+    {
+        state = {};
+        state.status = Status::preparing;
+        state.message = "Preparing your source";
+    });
     startThread();
     return true;
 }
 
 void JobRunner::cancel()
 {
+    const auto wasRunning = running.load();
     signalThreadShouldExit();
     if (process.isRunning())
         process.kill();
     stopThread(5000);
     running = false;
+    if (wasRunning)
+        updateSnapshot([](Snapshot& state)
+        {
+            state.status = Status::cancelled;
+            state.message = "Creation cancelled · your previous results are safe";
+        });
+}
+
+JobRunner::Snapshot JobRunner::snapshot() const
+{
+    const juce::ScopedLock lock(snapshotLock);
+    return currentSnapshot;
+}
+
+void JobRunner::updateSnapshot(std::function<void(Snapshot&)> update)
+{
+    const juce::ScopedLock lock(snapshotLock);
+    update(currentSnapshot);
 }
 
 void JobRunner::publishOutput(const juce::String& chunk)
@@ -50,12 +70,23 @@ void JobRunner::publishOutput(const juce::String& chunk)
         bufferedOutput.clear();
 
     for (const auto& line : lines)
-        if (line.startsWith("PROGRESS") || line.startsWith("BATCH_RETRY"))
-            juce::MessageManager::callAsync([callback = progressCallback, line]
+    {
+        if (line.startsWith("PROGRESS"))
+        {
+            const auto parts = juce::StringArray::fromTokens(line.fromFirstOccurrenceOf(" ", false, false), "/", "");
+            const auto completed = parts.size() > 0 ? parts[0].getIntValue() : 0;
+            const auto total = parts.size() > 1 ? parts[1].getIntValue() : 0;
+            updateSnapshot([completed, total](Snapshot& state)
             {
-                if (callback)
-                    callback(line);
+                state.status = completed < total ? Status::creating : Status::comparing;
+                state.completed = completed;
+                state.total = total;
+                state.message = completed < total ? "Creating candidates" : "Comparing the full set";
             });
+        }
+        else if (line.startsWith("BATCH_RETRY"))
+            updateSnapshot([](Snapshot& state) { state.message = "Adapting to available memory"; });
+    }
 }
 
 juce::File JobRunner::newestCompletedRun() const
@@ -106,9 +137,19 @@ void JobRunner::run()
 
     const auto result = newestCompletedRun();
     running = false;
-    juce::MessageManager::callAsync([callback = completionCallback, result, error]
+    updateSnapshot([result, error](Snapshot& state)
     {
-        if (callback)
-            callback(result, error);
+        state.run = result;
+        state.error = error;
+        if (result.isDirectory())
+        {
+            state.status = Status::complete;
+            state.message = "Eight variations ready";
+        }
+        else if (state.status != Status::cancelled)
+        {
+            state.status = Status::failed;
+            state.message = "Creation needs attention";
+        }
     });
 }

@@ -1,18 +1,9 @@
 #pragma once
 
-#include "JobRunner.h"
 #include "PluginProcessor.h"
+#include "WorkflowModel.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <deque>
-
-struct MapPoint
-{
-    juce::String kind;
-    juce::File path;
-    float x = 0.0f;
-    float y = 0.0f;
-    int rank = 0;
-};
 
 class MapComponent final : public juce::Component
 {
@@ -62,7 +53,6 @@ private:
     juce::String styleHint() const;
 
     DivergeAudioProcessor& audioProcessor;
-    JobRunner job;
     std::unique_ptr<juce::FileChooser> chooser;
     std::unique_ptr<juce::ChildProcess> decisionProcess;
     juce::String criticAction;
@@ -121,11 +111,14 @@ private:
     juce::TextEditor outputEditor;
 
     std::array<juce::File, 3> audioSlots;
+    WorkflowModel workflow;
+    RunModel loadedRun;
     std::vector<MapPoint> mapPoints;
     std::array<juce::File, 8> candidates;
     std::array<juce::String, 8> candidateDescriptions;
     juce::File currentRun;
     int selectedCandidate = 0;
+    JobRunner::Status lastJobStatus = JobRunner::Status::idle;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DivergeAudioProcessorEditor)
 };

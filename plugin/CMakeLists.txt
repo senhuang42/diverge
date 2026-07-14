@@ -36,6 +36,8 @@ target_sources(DivergePlugin PRIVATE
   Source/PluginEditor.h
   Source/PluginProcessor.cpp
   Source/PluginProcessor.h
+  Source/WorkflowModel.cpp
+  Source/WorkflowModel.h
 )
 
 target_compile_definitions(DivergePlugin PUBLIC
