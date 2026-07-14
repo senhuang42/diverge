@@ -36,6 +36,10 @@ public:
     bool isCapturing() const noexcept { return capturing.load(); }
     bool loadPreview(const juce::File& file);
     void playPreview();
+    void stopPreview();
+    bool isPreviewPlaying() const noexcept { return previewPlaying.load(); }
+    double previewProgress() const;
+    juce::String previewPath() const;
     juce::ValueTree& state() noexcept { return pluginState; }
     JobRunner& generation() noexcept { return generationService; }
 
@@ -46,8 +50,10 @@ private:
     double currentSampleRate = 44100.0;
 
     juce::AudioBuffer<float> previewBuffer;
-    juce::SpinLock previewLock;
+    mutable juce::SpinLock previewLock;
     int previewPosition = 0;
+    int previewLength = 0;
+    juce::String loadedPreviewPath;
     std::atomic<bool> previewPlaying { false };
     juce::ValueTree pluginState { "DivergeState" };
     JobRunner generationService;

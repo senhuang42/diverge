@@ -6,7 +6,7 @@ namespace
 juce::String buildExplanation(const CandidateModel& candidate, int count)
 {
     if (candidate.rank == count && count > 1)
-        return "Wildcard · the widest departure";
+        return "Wildcard - the widest departure";
     if (candidate.referenceFit >= 0.76)
         return "Closest to your direction";
     if (candidate.groove >= candidate.melody && candidate.groove >= candidate.timbre)

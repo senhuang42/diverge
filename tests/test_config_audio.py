@@ -19,6 +19,24 @@ def test_config_rejects_invalid_generation_batch_size(tmp_path: Path) -> None:
         RunConfig(source=tmp_path / "source.wav", references=[], generation_batch_size=0)
 
 
+def test_config_preserves_optional_branch_lineage(tmp_path: Path) -> None:
+    source = tmp_path / "source.wav"
+    config = RunConfig(
+        source=source,
+        references=[],
+        parent_run_id="20260714T000400.676948Z",
+        parent_candidate=5,
+    )
+
+    restored = RunConfig.from_json(config.to_json())
+
+    assert restored.parent_run_id == "20260714T000400.676948Z"
+    assert restored.parent_candidate == 5
+
+    with pytest.raises(ValueError, match="parent_run_id"):
+        RunConfig(source=source, references=[], parent_candidate=1)
+
+
 def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
     fast = _config(_parser().parse_args(["run", "--source", "source.wav", "--fast"]))
     overridden = _config(

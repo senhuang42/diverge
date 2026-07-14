@@ -92,6 +92,8 @@ bool DivergeAudioProcessor::loadPreview(const juce::File& file)
     const juce::SpinLock::ScopedLockType lock(previewLock);
     previewBuffer = std::move(loaded);
     previewPosition = 0;
+    previewLength = previewBuffer.getNumSamples();
+    loadedPreviewPath = file.getFullPathName();
     return true;
 }
 
@@ -100,6 +102,25 @@ void DivergeAudioProcessor::playPreview()
     const juce::SpinLock::ScopedLockType lock(previewLock);
     previewPosition = 0;
     previewPlaying = previewBuffer.getNumSamples() > 0;
+}
+
+void DivergeAudioProcessor::stopPreview()
+{
+    const juce::SpinLock::ScopedLockType lock(previewLock);
+    previewPlaying = false;
+    previewPosition = 0;
+}
+
+double DivergeAudioProcessor::previewProgress() const
+{
+    const juce::SpinLock::ScopedLockType lock(previewLock);
+    return previewLength > 0 ? static_cast<double>(previewPosition) / static_cast<double>(previewLength) : 0.0;
+}
+
+juce::String DivergeAudioProcessor::previewPath() const
+{
+    const juce::SpinLock::ScopedLockType lock(previewLock);
+    return loadedPreviewPath;
 }
 
 void DivergeAudioProcessor::getStateInformation(juce::MemoryBlock& destination)

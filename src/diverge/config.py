@@ -34,6 +34,8 @@ class RunConfig:
     opinion: int = 50
     taste_learning_enabled: bool = True
     prompt_enrichment_enabled: bool = True
+    parent_run_id: str | None = None
+    parent_candidate: int | None = None
 
     def __post_init__(self) -> None:
         self.source = Path(self.source)
@@ -60,6 +62,10 @@ class RunConfig:
             raise ValueError("self_novelty_weight must be in 0..1")
         if not 0 <= self.opinion <= 100:
             raise ValueError("opinion must be in 0..100")
+        if self.parent_candidate is not None and not 1 <= self.parent_candidate <= self.n_return:
+            raise ValueError("parent_candidate must identify a returned candidate")
+        if self.parent_candidate is not None and not self.parent_run_id:
+            raise ValueError("parent_run_id is required when parent_candidate is set")
         if self.references:
             if any(not 0 <= weight <= 1 for _, weight in self.references):
                 raise ValueError("reference weights must be in 0..1")

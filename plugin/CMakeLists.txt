@@ -30,6 +30,8 @@ juce_add_plugin(DivergePlugin
 )
 
 target_sources(DivergePlugin PRIVATE
+  Source/DesignSystem.cpp
+  Source/DesignSystem.h
   Source/JobRunner.cpp
   Source/JobRunner.h
   Source/PluginEditor.cpp

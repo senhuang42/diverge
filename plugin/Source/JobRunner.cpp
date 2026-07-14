@@ -38,7 +38,7 @@ void JobRunner::cancel()
         updateSnapshot([](Snapshot& state)
         {
             state.status = Status::cancelled;
-            state.message = "Creation cancelled · your previous results are safe";
+            state.message = "Creation cancelled - your previous results are safe";
         });
 }
 
