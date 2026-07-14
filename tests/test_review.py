@@ -5,6 +5,7 @@ import numpy as np
 
 from diverge.audio_io import save_audio
 from review.app import (
+    comparison_candidates,
     load_bundle,
     record_choice,
     render_map_html,
@@ -59,3 +60,13 @@ def test_record_choice_appends_local_label(tmp_path: Path) -> None:
     assert row["label"] == "keep"
     assert row["path"].endswith("cand_01.wav")
     assert "Recorded" in message
+
+
+def test_calibration_offers_six_distinct_targeted_pairs() -> None:
+    candidates = [
+        {"rank": index + 1, "taste": 0.4 + index * 0.02, "taste_uncertainty": 0.9}
+        for index in range(5)
+    ]
+    pairs = comparison_candidates(candidates, 6)
+    assert len(pairs) == 6
+    assert len({frozenset((a["rank"], b["rank"])) for a, b in pairs}) == 6

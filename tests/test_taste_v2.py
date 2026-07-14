@@ -195,3 +195,51 @@ def test_all_required_synthetic_profiles_are_deterministic() -> None:
     assert [item.to_dict() for item in repeated] == [
         item.to_dict() for item in profiles["low_band"]
     ]
+
+
+def test_unfamiliar_source_context_raises_uncertainty() -> None:
+    positive = event(0, "keep", "drum-a")
+    positive.candidate_a.features["source_category"] = "percussive"
+    negative = event(1, "discard", "drum-b")
+    negative.candidate_a.features["source_category"] = "percussive"
+    model = TasteModel()
+    model.fit([positive, negative])
+    familiar = model.score([CandidateContext(vector(0), source_category="percussive")])
+    unfamiliar = model.score([CandidateContext(vector(0), source_category="melodic")])
+    assert unfamiliar.uncertainty[0] >= 0.65
+    assert unfamiliar.uncertainty[0] > familiar.uncertainty[0]
+
+
+def test_full_pool_allocates_feedback_roles_without_bypassing_locks() -> None:
+    candidates = []
+    for index in range(16):
+        embedding = np.zeros(512, dtype=np.float32)
+        embedding[index] = 1
+        candidates.append(
+            Candidate(
+                index,
+                embedding,
+                ref_fit=0.7 - index * 0.01,
+                taste=0.8 if index % 2 else 0.6,
+                novelty=index / 16,
+                taste_uncertainty=0.2 + index / 20,
+                taste_evidence=12,
+                taste_mode=f"mode-{index % 2}",
+                lock_score=1.0 if index < 12 else 0.1,
+            )
+        )
+    result = select_candidates(
+        candidates,
+        8,
+        spread=50,
+        drift=30,
+        lock_threshold=0.55,
+        opinion=100,
+    )
+    assert {item.role for item in result.selected} == {
+        "favorite",
+        "informative",
+        "explore",
+        "surprise",
+    }
+    assert all(item.lock_score >= 0.55 for item in result.selected)

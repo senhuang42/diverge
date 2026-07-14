@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from .taste.events import (  # noqa: E402
     migrate_v1,
 )
 from .taste.model import TasteModel  # noqa: E402
-from .taste.profile import export_profile, training_events  # noqa: E402
+from .taste.profile import export_profile, profile_settings, training_events  # noqa: E402
 
 
 def _reference(value: str) -> tuple[Path, float]:
@@ -79,6 +80,7 @@ def _parser() -> argparse.ArgumentParser:
     taste_commands = taste.add_subparsers(dest="taste_command", required=True)
     taste_status = taste_commands.add_parser("status")
     taste_status.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    taste_status.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
     migrate = taste_commands.add_parser("migrate")
     migrate.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     migrate.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
@@ -169,12 +171,27 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"event_id": event.event_id, **report.__dict__}, indent=2))
         elif args.taste_command == "status":
             events = store.load(effective=True)
+            model = TasteModel()
+            model_warning = None
+            if args.model.exists():
+                try:
+                    model = TasteModel.load(args.model)
+                except Exception as exc:
+                    model_warning = str(exc)
             print(
                 json.dumps(
                     {
                         "version": 2,
                         "events": len(events),
                         "pairwise": sum(event.event_type == "pairwise" for event in events),
+                        "effective_evidence": model.effective_count,
+                        "confidence": 1 - math.exp(-model.effective_count / 8),
+                        "positive_modes": len(model.positive_modes),
+                        "negative_modes": len(model.negative_modes),
+                        "learning_enabled": profile_settings(args.events).get(
+                            "learning_enabled", True
+                        ),
+                        "model_warning": model_warning,
                         "warnings": store.warnings,
                     },
                     indent=2,

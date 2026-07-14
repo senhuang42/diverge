@@ -244,7 +244,10 @@ class TasteModel:
         for index, context in enumerate(contexts):
             category_count = self.source_counts.get(context.source_category or "unknown", 0)
             if context.source_category and category_count < 2:
-                uncertainty[index] = max(uncertainty[index], 0.65)
+                uncertainty[index] = max(
+                    0.65,
+                    0.4 + 0.6 * uncertainty[index],
+                )
         if not balanced:
             uncertainty = np.maximum(uncertainty, 0.45)
         uncertainty = np.clip(uncertainty, 0, 1)

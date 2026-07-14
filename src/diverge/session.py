@@ -43,6 +43,12 @@ def run_session(
     progress=print,
 ) -> Path:
     source, sr = load_audio(config.source)
+    source_spectral, source_temporal = audio_descriptors(source, sr)
+    source_category = (
+        "percussive"
+        if source_temporal["onset_density"] >= 0.2
+        else ("noisy" if source_spectral["flatness"] >= 0.25 else "melodic")
+    )
     taste_model, taste_warning = load_or_neutral(config.taste_model_path)
     taste_events = TasteEventStore(config.taste_events_path).load(effective=True)
     hypotheses = infer_descriptors(taste_events)
@@ -126,6 +132,7 @@ def run_session(
                 spread=config.spread,
                 drift=config.drift,
                 locks=config.locks,
+                source_category=source_category,
             )
         )
     predictions = taste_model.score(contexts)
@@ -185,6 +192,7 @@ def run_session(
                 "descriptors": descriptor_scores(
                     contexts[candidate.index].spectral, contexts[candidate.index].temporal
                 ),
+                "source_category": source_category,
                 "effective_taste_weight": candidate.effective_taste_weight,
                 "role": candidate.role,
                 "utility": candidate.utility,

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .events import TasteEvent, TasteEventStore
-from .model import TasteModel
+from .model import TasteModel, _record_context
 
 DESCRIPTORS: dict[str, tuple[str, ...]] = {
     "production": ("dry", "polished", "raw", "compressed"),
@@ -54,24 +57,31 @@ def profile_dict(
 ) -> dict[str, Any]:
     events = TasteEventStore(events_path).load(effective=True)
     representatives: dict[str, list[str]] = {mode: [] for mode in model.positive_mode_ids}
-    discarded: list[str] = []
+    discarded: dict[str, list[str]] = {mode: [] for mode in model.negative_mode_ids}
     for event in events:
         if not event.candidate_a:
             continue
         if event.label in {"love", "keep", "export"} and model.positive_mode_ids:
-            representatives[model.positive_mode_ids[0]].append(event.candidate_a.path)
-        elif event.label == "discard":
-            discarded.append(event.candidate_a.path)
+            prediction = model.score([_record_context(event.candidate_a, event)])
+            mode = prediction.mode_id[0] or model.positive_mode_ids[0]
+            representatives[mode].append(event.candidate_a.path)
+        elif event.label == "discard" and model.negative_mode_ids:
+            context = model.transform.transform(_record_context(event.candidate_a, event)).values
+            context /= max(float(np.linalg.norm(context)), 1e-12)
+            similarities = model.negative_modes @ context
+            mode = model.negative_mode_ids[int(np.argmax(similarities))]
+            discarded[mode].append(event.candidate_a.path)
     return {
         "schema_version": 2,
         "evidence": model.effective_count,
-        "confidence": 1 - __import__("math").exp(-model.effective_count / 8),
+        "confidence": 1 - math.exp(-model.effective_count / 8),
         "positive_modes": [
             {"id": mode, "representatives": representatives.get(mode, [])[:3]}
             for mode in model.positive_mode_ids
         ],
         "negative_modes": [
-            {"id": mode, "representatives": discarded[:3]} for mode in model.negative_mode_ids
+            {"id": mode, "representatives": discarded.get(mode, [])[:3]}
+            for mode in model.negative_mode_ids
         ],
         "source_categories": model.source_counts,
         "event_watermark": model.event_watermark,

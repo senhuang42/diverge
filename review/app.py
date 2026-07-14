@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
+from itertools import combinations
 from pathlib import Path
 
 from diverge.critic import add_choice, train_critic
@@ -183,6 +184,7 @@ def record_taste_choice(
                 **candidate.get("locks", {}),
             },
             "descriptors": candidate.get("descriptors", {}),
+            "source_category": candidate.get("source_category"),
         },
     )
     return TasteEventStore(events_path).append(
@@ -245,6 +247,30 @@ def train_taste(events_path: str | Path, model_path: str | Path) -> dict:
     return report.__dict__
 
 
+def comparison_candidates(candidates: list[dict], count: int = 1) -> list[tuple[dict, dict]]:
+    ranked = sorted(
+        candidates,
+        key=lambda item: (
+            -float(item.get("taste_uncertainty", 1.0)),
+            abs(float(item.get("taste", 0.5)) - 0.5),
+            int(item["rank"]),
+        ),
+    )
+    pairs = list(combinations(ranked, 2))
+    pairs.sort(
+        key=lambda pair: (
+            abs(float(pair[0].get("taste", 0.5)) - float(pair[1].get("taste", 0.5))),
+            -(
+                float(pair[0].get("taste_uncertainty", 1.0))
+                + float(pair[1].get("taste_uncertainty", 1.0))
+            ),
+            int(pair[0]["rank"]),
+            int(pair[1]["rank"]),
+        )
+    )
+    return pairs[:count]
+
+
 KEYBOARD_JS = """
 () => {
   let selected = 0;
@@ -301,6 +327,7 @@ def build_app(
     embedder_factory: Callable[[], Embedder] = Embedder,
     taste_events: str | Path = "taste/events.jsonl",
     taste_model: str | Path = "taste/model.joblib",
+    calibration_mode: bool = False,
 ):
     import gradio as gr
 
@@ -416,17 +443,15 @@ def build_app(
                 discard.click(fn=discard_handler, outputs=status)
                 undo.click(fn=undo_handler, outputs=status)
                 gr.HTML(render_candidate_navigation(rank, len(bundle.candidates)))
-        if len(bundle.candidates) >= 2:
-            comparison = sorted(
-                bundle.candidates,
-                key=lambda item: (
-                    -float(item.get("taste_uncertainty", 1.0)),
-                    abs(float(item.get("taste", 0.5)) - 0.5),
-                    int(item["rank"]),
-                ),
-            )[:2]
+        comparisons = comparison_candidates(bundle.candidates, 6 if calibration_mode else 1)
+        for comparison_index, comparison in enumerate(comparisons, 1):
             with gr.Group():
-                gr.Markdown("## Optional comparison\nWhich direction is more you?")
+                heading = (
+                    f"Calibration comparison {comparison_index}/{len(comparisons)}"
+                    if calibration_mode
+                    else "Optional comparison"
+                )
+                gr.Markdown(f"## {heading}\nWhich direction is more you?")
                 with gr.Row():
                     gr.Audio(value=str(candidate_path(bundle, comparison[0])), label="Direction A")
                     gr.Audio(value=str(candidate_path(bundle, comparison[1])), label="Direction B")
@@ -436,11 +461,11 @@ def build_app(
                     neither = gr.Button("Neither")
                     skip = gr.Button("Skip")
 
-                def compare(label: str) -> str:
+                def compare(label: str, pair=comparison) -> str:
                     event = record_pairwise_choice(
                         bundle,
-                        comparison[0],
-                        comparison[1],
+                        pair[0],
+                        pair[1],
                         label,
                         taste_events,
                         embedder,
@@ -479,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--critic-model", type=Path, default=Path("models/critic.joblib"))
     parser.add_argument("--taste-events", type=Path, default=Path("taste/events.jsonl"))
     parser.add_argument("--taste-model", type=Path, default=Path("taste/model.joblib"))
+    parser.add_argument("--calibration", action="store_true")
     parser.add_argument(
         "--share", action="store_true", help="Create a Gradio share link (not local-only)"
     )
@@ -491,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
         critic_model=args.critic_model,
         taste_events=args.taste_events,
         taste_model=args.taste_model,
+        calibration_mode=args.calibration,
     ).launch(inbrowser=True, share=False)
     return 0
 
