@@ -153,6 +153,8 @@ DivergeAudioProcessorEditor::DivergeAudioProcessorEditor(DivergeAudioProcessor& 
     directionCard = std::make_unique<WaveformCard>(formatManager, thumbnailCache);
     for (auto& card : candidateCards)
         card = std::make_unique<WaveformCard>(formatManager, thumbnailCache);
+    for (auto& card : recentCards)
+        card = std::make_unique<WaveformCard>(formatManager, thumbnailCache);
 
     configureUi();
     restoreSettings();
@@ -192,7 +194,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         return true;
     }
     const auto fixture = WorkflowFixtures::make(
-        fixtureMode == "results" ? WorkflowViewState::results
+        (fixtureMode == "results" || fixtureMode == "recent") ? WorkflowViewState::results
         : fixtureMode == "generating" ? WorkflowViewState::generating
         : fixtureMode == "error" ? WorkflowViewState::recoverableError
         : WorkflowViewState::ready);
@@ -213,7 +215,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
     else if (fixtureMode == "error")
         progressLabel.setText("Local engine unavailable - open Settings for a quick health check",
                               juce::dontSendNotification);
-    else if (fixtureMode == "results")
+    else if (fixtureMode == "results" || fixtureMode == "recent")
     {
         auto run = juce::File(juce::SystemStats::getEnvironmentVariable("DIVERGE_FIXTURE_RUN", {}));
         if (!run.isDirectory())
@@ -228,6 +230,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
                 if (candidate.getChildFile("manifest.json").existsAsFile()) { run = candidate; break; }
         }
         if (run.isDirectory()) loadRun(run);
+        if (fixtureMode == "recent") setRecentVisible(true);
     }
     return true;
 }
@@ -256,7 +259,7 @@ void DivergeAudioProcessorEditor::configureUi()
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
              &branchButton, &dragButton, &tighterButton, &widerButton, &shortcutLabel, &toastLabel,
-             &settingsPanel })
+             &keptButton, &recentButton, &settingsPanel, &recentPanel })
         addAndMakeVisible(component);
     for (auto& card : candidateCards) addAndMakeVisible(card.get());
 
@@ -320,7 +323,7 @@ void DivergeAudioProcessorEditor::configureUi()
         gridButton.setToggleState(true, juce::dontSendNotification);
         mapButton.setToggleState(false, juce::dontSendNotification);
         map.setVisible(false);
-        for (auto& card : candidateCards) card->setVisible(true);
+        updateResultVisibility();
         resized();
     };
     mapButton.onClick = [this]
@@ -333,6 +336,14 @@ void DivergeAudioProcessorEditor::configureUi()
         resized();
     };
     newButton.onClick = [this] { createNew(); };
+    keptButton.setClickingTogglesState(true);
+    keptButton.onClick = [this]
+    {
+        keptOnly = keptButton.getToggleState();
+        updateResultVisibility();
+        resized();
+    };
+    recentButton.onClick = [this] { setRecentVisible(true); };
     map.onCandidateSelected = [this](int rank) { selectCandidate(rank); };
 
     for (int index = 0; index < 8; ++index)
@@ -374,6 +385,28 @@ void DivergeAudioProcessorEditor::configureUi()
     toastLabel.setColour(juce::Label::backgroundColourId, DivergeTheme::raised);
     toastLabel.setColour(juce::Label::textColourId, DivergeTheme::text);
     toastLabel.setVisible(false);
+
+    recentPanel.setVisible(false);
+    recentPanel.addAndMakeVisible(recentTitle);
+    recentPanel.addAndMakeVisible(recentClose);
+    recentTitle.setText("RECENT RUNS", juce::dontSendNotification);
+    recentTitle.setFont(juce::FontOptions(17.0f).withStyle("Bold"));
+    recentClose.onClick = [this] { setRecentVisible(false); };
+    for (int index = 0; index < static_cast<int>(recentCards.size()); ++index)
+    {
+        auto& card = *recentCards[static_cast<size_t>(index)];
+        recentPanel.addAndMakeVisible(card);
+        card.setAudio("Recent", "No saved run", {});
+        card.onActivate = [this, index]
+        {
+            const auto run = recentRunDirectories[static_cast<size_t>(index)];
+            if (run.isDirectory())
+            {
+                setRecentVisible(false);
+                loadRun(run);
+            }
+        };
+    }
 
     settingsButton.onClick = [this] { setSettingsVisible(true); };
     settingsPanel.setVisible(false);
@@ -422,6 +455,13 @@ void DivergeAudioProcessorEditor::paint(juce::Graphics& g)
     {
         g.setColour(DivergeTheme::canvas.withAlpha(0.92f));
         g.fillRect(settingsPanel.getBounds());
+    }
+    if (recentPanel.isVisible())
+    {
+        g.setColour(DivergeTheme::canvas.withAlpha(0.97f));
+        g.fillRoundedRectangle(recentPanel.getBounds().toFloat(), DivergeTheme::radius);
+        g.setColour(DivergeTheme::edge);
+        g.drawRoundedRectangle(recentPanel.getBounds().toFloat().reduced(0.5f), DivergeTheme::radius, 1.0f);
     }
     if (audioProcessor.generation().isActive() && progressLabel.isVisible())
     {
@@ -519,8 +559,11 @@ void DivergeAudioProcessorEditor::resized()
         briefButton.setBounds(toolbar.removeFromLeft(88));
         resultsTitle.setBounds(toolbar.removeFromLeft(150));
         newButton.setBounds(toolbar.removeFromRight(110)); toolbar.removeFromRight(8);
+        recentButton.setBounds(toolbar.removeFromRight(76)); toolbar.removeFromRight(6);
         mapButton.setBounds(toolbar.removeFromRight(64)); toolbar.removeFromRight(6);
         gridButton.setBounds(toolbar.removeFromRight(64));
+        toolbar.removeFromRight(6);
+        keptButton.setBounds(toolbar.removeFromRight(68));
         area.removeFromTop(10);
 
         auto selected = area.removeFromBottom(154);
@@ -529,15 +572,18 @@ void DivergeAudioProcessorEditor::resized()
         if (!showMap)
         {
             const auto columns = getWidth() >= 1260 ? 4 : 2;
-            const auto rows = 8 / columns;
+            std::vector<int> visible;
+            for (int index = 0; index < 8; ++index)
+                if (candidateCards[static_cast<size_t>(index)]->isVisible()) visible.push_back(index);
+            const auto rows = juce::jmax(1, (static_cast<int>(visible.size()) + columns - 1) / columns);
             const auto gap = 8;
             const auto cardWidth = (area.getWidth() - gap * (columns - 1)) / columns;
             const auto cardHeight = (area.getHeight() - gap * (rows - 1)) / rows;
-            for (int index = 0; index < 8; ++index)
+            for (int position = 0; position < static_cast<int>(visible.size()); ++position)
             {
-                const auto column = index % columns;
-                const auto row = index / columns;
-                candidateCards[static_cast<size_t>(index)]->setBounds(
+                const auto column = position % columns;
+                const auto row = position / columns;
+                candidateCards[static_cast<size_t>(visible[static_cast<size_t>(position)])]->setBounds(
                     area.getX() + column * (cardWidth + gap), area.getY() + row * (cardHeight + gap),
                     cardWidth, cardHeight);
             }
@@ -560,11 +606,30 @@ void DivergeAudioProcessorEditor::resized()
     }
     toastLabel.setBounds(getLocalBounds().withSizeKeepingCentre(420, 38).translated(0, getHeight() / 2 - 42));
     toastLabel.toFront(false);
+    if (recentPanel.isVisible())
+    {
+        const auto drawerWidth = juce::jmin(460, getWidth() - 72);
+        recentPanel.setBounds(getWidth() - drawerWidth - 24, 132, drawerWidth, getHeight() - 156);
+        auto recent = recentPanel.getLocalBounds().reduced(18);
+        auto recentHeader = recent.removeFromTop(40);
+        recentTitle.setBounds(recentHeader.removeFromLeft(220));
+        recentClose.setBounds(recentHeader.removeFromRight(74));
+        recent.removeFromTop(10);
+        const auto count = static_cast<int>(recentCards.size());
+        const auto cardHeight = juce::jmax(72, (recent.getHeight() - 8 * (count - 1)) / count);
+        for (auto& card : recentCards)
+        {
+            card->setBounds(recent.removeFromTop(cardHeight));
+            recent.removeFromTop(8);
+        }
+        recentPanel.toFront(false);
+    }
 }
 
 void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
 {
     showPrepare = visible;
+    if (visible) recentPanel.setVisible(false);
     const auto generating = audioProcessor.generation().isActive();
     for (auto* component : std::initializer_list<juce::Component*> {
              &sourceSection, sourceCard.get(), &recordButton, &directionSection, directionCard.get(),
@@ -574,11 +639,12 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     styleEditor.setVisible(visible && showDirectionText);
     cancelButton.setVisible(visible && generating);
     for (auto* component : std::initializer_list<juce::Component*> {
-             &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton, &map, &selectedTitle,
+             &briefButton, &resultsTitle, &gridButton, &mapButton, &keptButton, &recentButton, &newButton, &map, &selectedTitle,
              &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton, &branchButton,
              &dragButton, &tighterButton, &widerButton, &shortcutLabel })
         component->setVisible(!visible);
     for (auto& card : candidateCards) card->setVisible(!visible && !showMap);
+    if (!visible) updateResultVisibility();
     map.setVisible(!visible && showMap);
     resized();
     repaint();
@@ -586,6 +652,7 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
 
 void DivergeAudioProcessorEditor::setSettingsVisible(bool visible)
 {
+    if (visible) recentPanel.setVisible(false);
     settingsPanel.setVisible(visible);
     if (visible) settingsPanel.toFront(false);
     resized();
@@ -790,6 +857,7 @@ void DivergeAudioProcessorEditor::startGeneration()
 
 void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
 {
+    const auto sameRun = workflow.activeRunId == run.getFileName();
     loadedRun = RunModel::load(run);
     if (!loadedRun.isValid())
     {
@@ -797,6 +865,7 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
         return;
     }
     currentRun = run;
+    restoreRunDecisions(sameRun);
     map.setPoints(loadedRun.mapPoints);
     for (int index = 0; index < 8; ++index)
     {
@@ -829,6 +898,9 @@ void DivergeAudioProcessorEditor::selectCandidate(int rank, bool playImmediately
     candidateDetail.setText(candidate->explanation, juce::dontSendNotification);
     if (playImmediately) togglePreview(candidate->file, rank);
     updateTransportUi();
+    updateResultVisibility();
+    resized();
+    saveRunDecisions();
     saveSettings();
 }
 
@@ -851,6 +923,9 @@ void DivergeAudioProcessorEditor::recordDecision(CandidateDecision decision)
                       : "Kept - Diverge will learn from this";
     showToast(copy);
     updateTransportUi();
+    updateResultVisibility();
+    resized();
+    saveRunDecisions();
     saveSettings();
 }
 
@@ -865,6 +940,9 @@ void DivergeAudioProcessorEditor::undoDecision()
     workflow.decisions[index] = CandidateDecision::none;
     showToast("Decision undone");
     updateTransportUi();
+    updateResultVisibility();
+    resized();
+    saveRunDecisions();
     saveSettings();
 }
 
@@ -901,6 +979,113 @@ void DivergeAudioProcessorEditor::adjustRange(int delta)
     workflow.range = juce::jlimit(0, 100, workflow.range + delta);
     showToast(delta < 0 ? "Next batch will stay closer together" : "Next batch will explore a wider range");
     saveSettings();
+}
+
+void DivergeAudioProcessorEditor::saveRunDecisions()
+{
+    if (!currentRun.isDirectory()) return;
+    auto root = juce::JSON::parse("{}");
+    auto* object = root.getDynamicObject();
+    object->setProperty("run_id", currentRun.getFileName());
+    juce::Array<juce::var> rows;
+    for (int index = 0; index < 8; ++index)
+    {
+        const auto decision = workflow.decisions[static_cast<size_t>(index)];
+        if (decision == CandidateDecision::none) continue;
+        auto row = juce::JSON::parse("{}");
+        row.getDynamicObject()->setProperty("rank", index + 1);
+        row.getDynamicObject()->setProperty("decision", decisionToString(decision));
+        rows.add(row);
+    }
+    object->setProperty("decisions", rows);
+    currentRun.getChildFile("decisions.json").replaceWithText(juce::JSON::toString(root, true));
+}
+
+void DivergeAudioProcessorEditor::restoreRunDecisions(bool sameRun)
+{
+    if (!sameRun) workflow.decisions = {};
+    const auto value = juce::JSON::parse(currentRun.getChildFile("decisions.json"));
+    if (const auto* object = value.getDynamicObject())
+        if (const auto* rows = object->getProperty("decisions").getArray())
+            for (const auto& row : *rows)
+            {
+                const auto rank = static_cast<int>(row.getProperty("rank", 0));
+                if (rank >= 1 && rank <= 8)
+                    workflow.decisions[static_cast<size_t>(rank - 1)] =
+                        decisionFromString(row.getProperty("decision", {}).toString());
+            }
+}
+
+void DivergeAudioProcessorEditor::refreshRecentRuns()
+{
+    juce::Array<juce::File> runs;
+    juce::File(outputEditor.getText().trim()).findChildFiles(runs, juce::File::findDirectories, false);
+    std::sort(runs.begin(), runs.end(), [](const auto& a, const auto& b)
+    {
+        return a.getLastModificationTime() > b.getLastModificationTime();
+    });
+    for (int index = 0; index < static_cast<int>(recentCards.size()); ++index)
+    {
+        auto& card = *recentCards[static_cast<size_t>(index)];
+        recentRunDirectories[static_cast<size_t>(index)] = juce::File();
+        if (index >= runs.size())
+        {
+            card.setAudio("Empty", "No earlier run", {});
+            card.setSupportingText({});
+            continue;
+        }
+        const auto run = runs.getReference(index);
+        const auto model = RunModel::load(run);
+        if (!model.isValid())
+        {
+            card.setAudio("Unavailable", "Run bundle needs repair", {});
+            continue;
+        }
+        recentRunDirectories[static_cast<size_t>(index)] = run;
+        int kept = 0;
+        const auto decisions = juce::JSON::parse(run.getChildFile("decisions.json"));
+        if (const auto* object = decisions.getDynamicObject())
+            if (const auto* rows = object->getProperty("decisions").getArray())
+                for (const auto& row : *rows)
+                {
+                    const auto decision = decisionFromString(row.getProperty("decision", {}).toString());
+                    if (decision == CandidateDecision::keep || decision == CandidateDecision::favorite
+                        || decision == CandidateDecision::exported) ++kept;
+                }
+        card.setAudio(run == currentRun ? "Current run" : "Saved run", "Run source unavailable", model.source);
+        const auto date = run.getLastModificationTime().toString(true, true, false, true);
+        card.setSupportingText(date + "  /  " + juce::String(kept) + " kept or used");
+    }
+}
+
+void DivergeAudioProcessorEditor::setRecentVisible(bool visible)
+{
+    if (visible) refreshRecentRuns();
+    recentPanel.setVisible(visible);
+    if (visible) recentPanel.toFront(false);
+    resized();
+    repaint();
+}
+
+void DivergeAudioProcessorEditor::updateResultVisibility()
+{
+    if (showPrepare || showMap)
+    {
+        for (auto& card : candidateCards) card->setVisible(false);
+        return;
+    }
+    int visibleCount = 0;
+    for (int index = 0; index < 8; ++index)
+    {
+        const auto decision = workflow.decisions[static_cast<size_t>(index)];
+        const auto positive = decision == CandidateDecision::keep || decision == CandidateDecision::favorite
+                           || decision == CandidateDecision::exported;
+        const auto visible = !keptOnly || positive;
+        candidateCards[static_cast<size_t>(index)]->setVisible(visible);
+        if (visible) ++visibleCount;
+    }
+    if (keptOnly && visibleCount == 0)
+        candidateDetail.setText("No kept variations in this run yet", juce::dontSendNotification);
 }
 
 void DivergeAudioProcessorEditor::showToast(const juce::String& text)

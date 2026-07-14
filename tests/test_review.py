@@ -7,6 +7,7 @@ from diverge.audio_io import save_audio
 from review.app import (
     comparison_candidates,
     load_bundle,
+    producer_explanation,
     record_choice,
     render_map_html,
     render_navigation_html,
@@ -50,6 +51,7 @@ def test_review_bundle_map_and_scores(tmp_path: Path) -> None:
     assert 'href="#candidate-1"' in rendered
     assert 'data-candidate-rank="1"' in render_navigation_html(bundle.candidates)
     assert "Reference" in score_markdown(candidate)
+    assert producer_explanation(candidate) == "Groove held steady while the texture moved."
 
 
 def test_record_choice_appends_local_label(tmp_path: Path) -> None:

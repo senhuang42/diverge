@@ -59,6 +59,11 @@ private:
     void branchFromSelected();
     void createNew();
     void adjustRange(int delta);
+    void refreshRecentRuns();
+    void setRecentVisible(bool visible);
+    void saveRunDecisions();
+    void restoreRunDecisions(bool sameRun);
+    void updateResultVisibility();
     void showToast(const juce::String&);
 
     void runCriticCommand(const juce::StringArray& arguments);
@@ -89,6 +94,7 @@ private:
     bool showDirectionText = false;
     bool showAdvanced = false;
     bool dragHover = false;
+    bool keptOnly = false;
     juce::String fixtureMode;
     int toastTicks = 0;
     float displayedProgress = 0.0f;
@@ -123,6 +129,8 @@ private:
     juce::Label resultsTitle;
     juce::TextButton gridButton { "Grid" };
     juce::TextButton mapButton { "Map" };
+    juce::TextButton keptButton { "Kept" };
+    juce::TextButton recentButton { "Recent" };
     juce::TextButton newButton { "Create new" };
     std::array<std::unique_ptr<WaveformCard>, 8> candidateCards;
     MapComponent map;
@@ -138,6 +146,12 @@ private:
     juce::TextButton widerButton { "Wider next" };
     juce::Label shortcutLabel;
     juce::Label toastLabel;
+
+    juce::Component recentPanel;
+    juce::Label recentTitle;
+    juce::TextButton recentClose { "Close" };
+    std::array<std::unique_ptr<WaveformCard>, 5> recentCards;
+    std::array<juce::File, 5> recentRunDirectories;
 
     juce::Component settingsPanel;
     juce::Label settingsTitle;

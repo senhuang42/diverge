@@ -81,7 +81,7 @@ def render_map_html(points: list[dict], width: int = 720, height: int = 420) -> 
             rank = int(point.get("rank", 0))
             shape = (
                 f'<a href="#candidate-{rank}" data-candidate-rank="{rank}" '
-                f'aria-label="Review candidate {rank}">'
+                f'aria-label="Review variation {rank}">'
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" fill="#0ea5e9">'
                 f"<title>{title}</title></circle>"
                 f'<text x="{x:.1f}" y="{y + 4:.1f}" text-anchor="middle" '
@@ -94,7 +94,7 @@ def render_map_html(points: list[dict], width: int = 720, height: int = 420) -> 
         '<rect width="100%" height="100%" rx="12" fill="#f8fafc"/>'
         + "".join(shapes)
         + "</svg><p>● source &nbsp; ■ reference &nbsp; "
-        + "<span style='color:#0ea5e9'>●</span> candidates</p></div>"
+        + "<span style='color:#0ea5e9'>●</span> variations</p></div>"
     )
 
 
@@ -133,6 +133,21 @@ def score_markdown(candidate: dict) -> str:
         f"**Novelty:** {candidate['novelty']:.2f} · **Taste:** {candidate['taste']:.2f} · "
         f"**Utility:** {candidate['utility']:.2f}"
     )
+
+
+def producer_explanation(candidate: dict) -> str:
+    rank = int(candidate["rank"])
+    locks = candidate.get("locks", {})
+    if rank == 8:
+        return "**Wildcard** — the widest departure in this batch."
+    if float(candidate.get("ref_fit", 0.0)) >= 0.76:
+        return "Closest to your direction."
+    strongest = max(locks, key=locks.get) if locks else None
+    if strongest == "groove":
+        return "Groove held steady while the texture moved."
+    if strongest == "melody":
+        return "Melody held steady while the character shifted."
+    return "Source character preserved."
 
 
 def record_choice(
@@ -275,6 +290,7 @@ KEYBOARD_JS = """
 () => {
   let selected = 0;
   const rows = () => Array.from(document.querySelectorAll('.candidate-row'));
+  const current = () => rows()[selected];
   const select = (next) => {
     const items = rows();
     if (!items.length) return;
@@ -289,12 +305,12 @@ KEYBOARD_JS = """
   document.addEventListener('keydown', (event) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
     if (event.repeat) return;
-    if (event.key === 'j') select(selected + 1);
-    if (event.key === 'k') select(selected - 1);
-    if (event.key === 'l') rows()[selected]?.querySelector('.love-button')?.click();
-    if (event.key === 'y') rows()[selected]?.querySelector('.keep-button')?.click();
-    if (event.key === 'n') rows()[selected]?.querySelector('.discard-button')?.click();
-    if (event.key === 'u') rows()[selected]?.querySelector('.undo-button')?.click();
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') select(selected + 1);
+    if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') select(selected - 1);
+    if (event.key.toLowerCase() === 'f') current()?.querySelector('.favorite-button')?.click();
+    if (event.key.toLowerCase() === 'k') current()?.querySelector('.keep-button')?.click();
+    if (event.key.toLowerCase() === 'x') current()?.querySelector('.pass-button')?.click();
+    if (event.key === 'u') current()?.querySelector('.undo-button')?.click();
   });
   setTimeout(() => select(0), 500);
 }
@@ -336,7 +352,7 @@ def build_app(
     with gr.Blocks(title=f"Diverge review — {bundle.run_dir.name}", css=CSS, js=KEYBOARD_JS) as app:
         gr.Markdown(
             f"# Diverge review\n`{bundle.run_dir}`\n\n"
-            "Keyboard: **j/k** navigate, **l** love, **y** keep, **n** discard, **u** undo."
+            "Keyboard: **arrows** navigate, **f** favorite, **k** keep, **x** pass, **u** undo."
         )
         gr.HTML(render_map_html(bundle.map_points))
         gr.HTML(render_navigation_html(bundle.candidates))
@@ -404,12 +420,17 @@ def build_app(
         for candidate in bundle.candidates:
             rank = int(candidate["rank"])
             with gr.Group(elem_id=f"candidate-{rank}", elem_classes=["candidate-row"]):
-                gr.Markdown(f"## Candidate {rank}\n{score_markdown(candidate)}")
-                gr.Audio(value=str(candidate_path(bundle, candidate)), label=f"Candidate {rank}")
+                gr.Markdown(
+                    f"## Variation {rank}\n{producer_explanation(candidate)}\n\n"
+                    f"<details><summary>Diagnostics</summary>{score_markdown(candidate)}</details>"
+                )
+                gr.Audio(value=str(candidate_path(bundle, candidate)), label=f"Variation {rank}")
                 with gr.Row():
-                    love = gr.Button("Love", variant="primary", elem_classes=["love-button"])
+                    favorite = gr.Button(
+                        "Favorite", variant="primary", elem_classes=["favorite-button"]
+                    )
                     keep = gr.Button("Keep", variant="primary", elem_classes=["keep-button"])
-                    discard = gr.Button("Discard", variant="stop", elem_classes=["discard-button"])
+                    pass_button = gr.Button("Pass", variant="stop", elem_classes=["pass-button"])
                     undo = gr.Button("Undo", elem_classes=["undo-button"])
 
                 def decide(label: str, item=candidate, item_rank=rank) -> str:
@@ -434,13 +455,13 @@ def build_app(
                     latest_events.pop(item_rank, None)
                     return f"Undone. Taste: {report['observations']} events · v2"
 
-                love_handler = partial(decide, "love")
+                favorite_handler = partial(decide, "love")
                 keep_handler = partial(decide, "keep")
-                discard_handler = partial(decide, "discard")
+                pass_handler = partial(decide, "discard")
                 undo_handler = partial(undo_choice)
-                love.click(fn=love_handler, outputs=status)
+                favorite.click(fn=favorite_handler, outputs=status)
                 keep.click(fn=keep_handler, outputs=status)
-                discard.click(fn=discard_handler, outputs=status)
+                pass_button.click(fn=pass_handler, outputs=status)
                 undo.click(fn=undo_handler, outputs=status)
                 gr.HTML(render_candidate_navigation(rank, len(bundle.candidates)))
         comparisons = comparison_candidates(bundle.candidates, 6 if calibration_mode else 1)

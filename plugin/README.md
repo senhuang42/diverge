@@ -29,18 +29,26 @@ The locally built AU validates with:
 auval -v aufx Dvge Snhg
 ```
 
-The default settings point at this checkout's `.venv`, `models/`, `choices.jsonl`, and `runs/` paths. Open
-the in-plugin Settings panel after moving the checkout or Python environment.
+The default setup points at this checkout's `.venv`, `models/`, `choices.jsonl`, and `runs/`
+paths. Normal use does not expose them; after moving the checkout or Python environment,
+open **Settings → Advanced diagnostics** to repair the local engine or storage location.
 For a host-free smoke test, open
 `plugin/build/DivergePlugin_artefacts/Release/Standalone/Diverge.app`.
 
 ## Host workflow
 
-1. Drop or choose a source; optionally add two weighted references.
-2. Choose locks and Transform/Spread/Drift. Fast mode is on by default.
-3. Generate. The UI remains responsive and reports `PROGRESS i/N`.
-4. Click a map point or numbered candidate, audition it, then Keep/Discard.
-5. Drag the selected WAV into the DAW.
+1. Drop, record, or choose a source; optionally add a reference or short direction.
+2. Set **Change**, then choose which of Groove, Melody, and Timbre to preserve.
+3. Select **Create 8 variations**. Honest stages and completed work remain visible, and the
+   processor-owned job continues if the editor closes.
+4. Click waveform cards to switch audition instantly; use Source A/B, Keep, Pass, Favorite,
+   or keyboard shortcuts without leaving the result grid.
+5. Drag a selected card or choose **Use in DAW**. Branch with **More like this**, recover a
+   prior batch from **Recent**, or inspect the synchronized **Map** view.
 
-The taste critic retrains on plugin launch and after every ten completed decisions. Closing
-the editor or plugin cancels its active Python child before teardown.
+Creative state, the active run, selection, and decision sidecars are restored with the plugin
+instance. Rapid decisions are queued and learned locally. Closing only the editor preserves
+an active job; destroying the plugin instance cleanly cancels its child process.
+
+For deterministic UI review without running models, set `DIVERGE_UI_FIXTURE` to `empty`,
+`ready`, `generating`, `results`, `recent`, or `error` before opening the Standalone build.

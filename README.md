@@ -31,7 +31,7 @@ Normal mode generates 32 candidates and selects eight. `--fast` uses four diffus
 and a 16-candidate pool for iteration; pass `--n-oversample 32` to retain the full pool.
 
 Review a completed batch locally with clickable map points, numbered navigation, or the
-always-visible j/k/l/y/n/u shortcuts:
+same arrow/Favorite/Keep/Pass shortcuts used by the plugin:
 
 ```bash
 uv run python -m review.app runs/<timestamp>
@@ -43,7 +43,7 @@ All audio is loaded and written as 44.1 kHz stereo float WAV. Outputs live under
 
 ## Local taste profile
 
-Taste v2 learns immediately from Love, Keep, and Discard decisions, supports optional
+Taste v2 learns immediately from Favorite, Keep, and Pass decisions, supports optional
 pairwise comparisons, and records append-only events under `taste/events.jsonl`. Preference
 state, embeddings, model artifacts, and evaluation reports remain local and are ignored by
 git. Recent-keeps anti-repetition remains separate from preference prediction.
