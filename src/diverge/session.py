@@ -15,6 +15,8 @@ from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
 from .novelty import novelty_scores, recent_kept_embeddings, self_novelty_scores
 from .select import Candidate, select_candidates
+from .taste.features import CandidateContext, audio_descriptors
+from .taste.model import load_or_neutral
 
 
 def _style_hint(config: RunConfig) -> str:
@@ -75,8 +77,11 @@ def run_session(
     self_novelty = self_novelty_scores(
         candidate_embeddings, recent_kept_embeddings(config.choices_path)
     )
-    taste = taste_scores(candidate_embeddings, config.critic_model)
+    taste_model, taste_warning = load_or_neutral(config.taste_model_path)
+    legacy_taste = taste_scores(candidate_embeddings, config.critic_model)
     candidates = []
+    contexts = []
+    candidate_similarities = []
     for index, (audio, embedding) in enumerate(zip(generated, candidate_embeddings, strict=True)):
         similarities = lock_similarities(
             audio,
@@ -86,16 +91,52 @@ def run_session(
             sr,
             source_features=source_lock_features,
         )
+        candidate_similarities.append(similarities)
+        spectral, temporal = audio_descriptors(audio, sr)
+        contexts.append(
+            CandidateContext(
+                candidate_embedding=embedding,
+                source_embedding=source_embedding,
+                reference_embeddings=reference_embeddings,
+                reference_weights=[weight for _, weight in config.references],
+                scores={
+                    "groove": similarities.get("groove", 0.0),
+                    "melody": similarities.get("melody", 0.0),
+                    "timbre": similarities.get("timbre", 0.0),
+                    "novelty": float(novelty[index]),
+                    "self_novelty": float(self_novelty[index]),
+                    "lock_score": active_lock_score(similarities, config.locks),
+                },
+                spectral=spectral,
+                temporal=temporal,
+                transform=config.transform,
+                spread=config.spread,
+                drift=config.drift,
+                locks=config.locks,
+            )
+        )
+    predictions = taste_model.score(contexts)
+    for index, embedding in enumerate(candidate_embeddings):
+        similarities = candidate_similarities[index]
+        taste_mean = (
+            float(predictions.mean[index])
+            if taste_model.observation_count
+            else float(legacy_taste[index])
+        )
         candidates.append(
             Candidate(
                 index=index,
                 embedding=embedding,
                 ref_fit=float(ref_fit[index]),
-                taste=float(taste[index]),
+                taste=taste_mean,
                 novelty=float(novelty[index]),
                 self_novelty=float(self_novelty[index]),
                 locks=similarities,
                 lock_score=active_lock_score(similarities, config.locks),
+                taste_uncertainty=float(predictions.uncertainty[index]),
+                taste_evidence=float(predictions.evidence[index]),
+                taste_mode=predictions.mode_id[index],
+                taste_factors=predictions.factors[index],
             )
         )
     result = select_candidates(
@@ -105,6 +146,7 @@ def run_session(
         config.drift,
         config.lock_threshold,
         config.self_novelty_weight,
+        opinion=config.opinion,
     )
     records = []
     winner_embeddings = []
@@ -123,6 +165,12 @@ def run_session(
                 "novelty": round(candidate.novelty, 6),
                 "self_novelty": round(candidate.self_novelty, 6),
                 "taste": round(candidate.taste, 6),
+                "taste_uncertainty": round(candidate.taste_uncertainty, 6),
+                "taste_evidence": round(candidate.taste_evidence, 6),
+                "taste_mode": candidate.taste_mode,
+                "taste_factors": candidate.taste_factors,
+                "effective_taste_weight": candidate.effective_taste_weight,
+                "role": candidate.role,
                 "utility": candidate.utility,
             }
         )
@@ -143,6 +191,15 @@ def run_session(
             "lock_threshold_used": result.threshold_used,
             "relaxations": result.relaxations,
             "utility_weights": result.weights,
+        },
+        "taste": {
+            "version": 2,
+            "event_watermark": taste_model.event_watermark,
+            "observations": taste_model.observation_count,
+            "confidence": round(1 - np.exp(-taste_model.effective_count / 8), 6),
+            "opinion": config.opinion,
+            "warning": taste_warning,
+            "prompt_additions": [],
         },
         "candidates": records,
     }

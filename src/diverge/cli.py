@@ -12,6 +12,9 @@ from .critic import add_choice, choice_count, train_critic  # noqa: E402
 from .embed import Embedder  # noqa: E402
 from .generator import MockGenerator, StableAudioGenerator  # noqa: E402
 from .session import run_session  # noqa: E402
+from .taste.events import TasteEventStore, migrate_v1  # noqa: E402
+from .taste.model import TasteModel  # noqa: E402
+from .taste.profile import export_profile  # noqa: E402
 
 
 def _reference(value: str) -> tuple[Path, float]:
@@ -48,6 +51,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--fast", action="store_true")
     run.add_argument("--batch-size", type=int)
     run.add_argument("--mock", action="store_true")
+    run.add_argument("--taste-events", type=Path, default=Path("taste/events.jsonl"))
+    run.add_argument("--taste-model", type=Path, default=Path("taste/model.joblib"))
+    run.add_argument("--opinion", type=int, default=50)
+    run.add_argument("--disable-taste-learning", action="store_true")
+    run.add_argument("--disable-prompt-enrichment", action="store_true")
 
     critic = commands.add_parser("critic")
     critic_commands = critic.add_subparsers(dest="critic_command", required=True)
@@ -61,6 +69,24 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--model", type=Path, default=Path("models/critic.joblib"))
     status = critic_commands.add_parser("status")
     status.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
+
+    taste = commands.add_parser("taste")
+    taste_commands = taste.add_subparsers(dest="taste_command", required=True)
+    taste_status = taste_commands.add_parser("status")
+    taste_status.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    migrate = taste_commands.add_parser("migrate")
+    migrate.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
+    migrate.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    taste_train = taste_commands.add_parser("train")
+    taste_train.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    taste_train.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
+    evaluate = taste_commands.add_parser("evaluate")
+    evaluate.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    evaluate.add_argument("--reports-dir", type=Path, default=Path("taste/reports"))
+    export = taste_commands.add_parser("export-profile")
+    export.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    export.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
+    export.add_argument("--output", type=Path, default=Path("taste/profile.json"))
     return parser
 
 
@@ -89,11 +115,45 @@ def _config(args: argparse.Namespace) -> RunConfig:
         fast=args.fast,
         generation_batch_size=args.batch_size or 8,
         output_dir=args.output_dir,
+        taste_events_path=args.taste_events,
+        taste_model_path=args.taste_model,
+        opinion=args.opinion,
+        taste_learning_enabled=not args.disable_taste_learning,
+        prompt_enrichment_enabled=not args.disable_prompt_enrichment,
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "taste":
+        store = TasteEventStore(args.events)
+        if args.taste_command == "migrate":
+            print(json.dumps(migrate_v1(args.choices, args.events), indent=2))
+        elif args.taste_command == "status":
+            events = store.load(effective=True)
+            print(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "events": len(events),
+                        "pairwise": sum(event.event_type == "pairwise" for event in events),
+                        "warnings": store.warnings,
+                    },
+                    indent=2,
+                )
+            )
+        elif args.taste_command == "train":
+            model = TasteModel()
+            report = model.fit(store.load())
+            model.save(args.model)
+            print(json.dumps(report.__dict__, indent=2))
+        elif args.taste_command == "evaluate":
+            from .taste.evaluate import evaluate_events
+
+            print(json.dumps(evaluate_events(store.load(), args.reports_dir), indent=2))
+        else:
+            print(export_profile(args.model, args.events, args.output))
+        return 0
     if args.command == "critic":
         if args.critic_command == "add":
             embedding = Embedder(model_path=args.models_dir / "clap-htsat-unfused").embed_file(

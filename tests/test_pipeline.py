@@ -41,6 +41,8 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert (run_dir / "map.json").exists()
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(manifest["candidates"]) == 3
+    assert manifest["taste"]["version"] == 2
+    assert all("taste_uncertainty" in item for item in manifest["candidates"])
     assert all(path.stat().st_size > 1_000 for path in waves)
 
 

@@ -5,10 +5,13 @@ import html
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from diverge.critic import add_choice, train_critic
 from diverge.embed import Embedder
+from diverge.taste.events import CandidateRecord, TasteEvent, TasteEventStore
+from diverge.taste.model import TasteModel
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,99 @@ def record_choice(
     return f"Recorded **{label}** for candidate {candidate['rank']}."
 
 
+def record_taste_choice(
+    bundle: ReviewBundle,
+    candidate: dict,
+    label: str,
+    events_path: str | Path,
+    embedder: Embedder,
+) -> TasteEvent:
+    if label not in {"love", "keep", "discard", "export"}:
+        raise ValueError("unsupported absolute taste label")
+    path = candidate_path(bundle, candidate)
+    config = bundle.manifest.get("config", {})
+    source_path = config.get("source")
+    source_embedding = (
+        embedder.embed_file(Path(source_path)).tolist()
+        if source_path and Path(source_path).exists()
+        else None
+    )
+    references = config.get("references") or []
+    reference_paths = [Path(item[0]) for item in references if Path(item[0]).exists()]
+    reference_embeddings = embedder.embed_batch(reference_paths).tolist() if reference_paths else []
+    record = CandidateRecord.from_embedding(
+        path,
+        embedder.embed_file(path),
+        {
+            "source_embedding": source_embedding,
+            "reference_embeddings": reference_embeddings,
+            "reference_weights": [item[1] for item in references if Path(item[0]).exists()],
+            "scores": {
+                "novelty": candidate.get("novelty", 0.0),
+                "self_novelty": candidate.get("self_novelty", 0.0),
+                "lock_score": candidate.get("lock_score", 0.0),
+                **candidate.get("locks", {}),
+            },
+        },
+    )
+    return TasteEventStore(events_path).append(
+        TasteEvent(
+            event_type="export" if label == "export" else "absolute",
+            label=label,
+            candidate_a=record,
+            batch_id=bundle.run_dir.name,
+            source_path=config.get("source"),
+            run_config={key: config.get(key) for key in ("transform", "spread", "drift", "locks")},
+        )
+    )
+
+
+def record_pairwise_choice(
+    bundle: ReviewBundle,
+    candidate_a: dict,
+    candidate_b: dict,
+    label: str,
+    events_path: str | Path,
+    embedder: Embedder,
+) -> TasteEvent | None:
+    if label == "skip":
+        return None
+    if label not in {"prefer_a", "prefer_b", "neither"}:
+        raise ValueError("unsupported pairwise label")
+    a_path = candidate_path(bundle, candidate_a)
+    b_path = candidate_path(bundle, candidate_b)
+    config = bundle.manifest.get("config", {})
+    record_a = CandidateRecord.from_embedding(a_path, embedder.embed_file(a_path))
+    record_b = CandidateRecord.from_embedding(b_path, embedder.embed_file(b_path))
+    pair_key = frozenset((record_a.embedding_hash, record_b.embedding_hash))
+    store = TasteEventStore(events_path)
+    for event in store.load():
+        if event.event_type == "pairwise" and event.candidate_a and event.candidate_b:
+            previous = frozenset(
+                (event.candidate_a.embedding_hash, event.candidate_b.embedding_hash)
+            )
+            if previous == pair_key:
+                return None
+    return store.append(
+        TasteEvent(
+            event_type="pairwise",
+            label=label,
+            candidate_a=record_a,
+            candidate_b=record_b,
+            batch_id=bundle.run_dir.name,
+            source_path=config.get("source"),
+            run_config={key: config.get(key) for key in ("transform", "spread", "drift", "locks")},
+        )
+    )
+
+
+def train_taste(events_path: str | Path, model_path: str | Path) -> dict:
+    model = TasteModel()
+    report = model.fit(TasteEventStore(events_path).load())
+    model.save(model_path)
+    return report.__dict__
+
+
 KEYBOARD_JS = """
 () => {
   let selected = 0;
@@ -153,8 +249,10 @@ KEYBOARD_JS = """
     if (event.repeat) return;
     if (event.key === 'j') select(selected + 1);
     if (event.key === 'k') select(selected - 1);
+    if (event.key === 'l') rows()[selected]?.querySelector('.love-button')?.click();
     if (event.key === 'y') rows()[selected]?.querySelector('.keep-button')?.click();
     if (event.key === 'n') rows()[selected]?.querySelector('.discard-button')?.click();
+    if (event.key === 'u') rows()[selected]?.querySelector('.undo-button')?.click();
   });
   setTimeout(() => select(0), 500);
 }
@@ -185,6 +283,8 @@ def build_app(
     choices_path: str | Path = "choices.jsonl",
     critic_model: str | Path = "models/critic.joblib",
     embedder_factory: Callable[[], Embedder] = Embedder,
+    taste_events: str | Path = "taste/events.jsonl",
+    taste_model: str | Path = "taste/model.joblib",
 ):
     import gradio as gr
 
@@ -193,32 +293,95 @@ def build_app(
     with gr.Blocks(title=f"Diverge review — {bundle.run_dir.name}", css=CSS, js=KEYBOARD_JS) as app:
         gr.Markdown(
             f"# Diverge review\n`{bundle.run_dir}`\n\n"
-            "Keyboard: **j/k** navigate, **y** keep, **n** discard."
+            "Keyboard: **j/k** navigate, **l** love, **y** keep, **n** discard, **u** undo."
         )
         gr.HTML(render_map_html(bundle.map_points))
         gr.HTML(render_navigation_html(bundle.candidates))
         status = gr.Markdown("Ready.")
+        latest_events: dict[int, str] = {}
         for candidate in bundle.candidates:
             rank = int(candidate["rank"])
             with gr.Group(elem_id=f"candidate-{rank}", elem_classes=["candidate-row"]):
                 gr.Markdown(f"## Candidate {rank}\n{score_markdown(candidate)}")
                 gr.Audio(value=str(candidate_path(bundle, candidate)), label=f"Candidate {rank}")
                 with gr.Row():
+                    love = gr.Button("Love", variant="primary", elem_classes=["love-button"])
                     keep = gr.Button("Keep", variant="primary", elem_classes=["keep-button"])
                     discard = gr.Button("Discard", variant="stop", elem_classes=["discard-button"])
-                keep.click(
-                    fn=lambda item=candidate: record_choice(
-                        bundle, item, "keep", choices_path, embedder
-                    ),
-                    outputs=status,
-                )
-                discard.click(
-                    fn=lambda item=candidate: record_choice(
-                        bundle, item, "discard", choices_path, embedder
-                    ),
-                    outputs=status,
-                )
+                    undo = gr.Button("Undo", elem_classes=["undo-button"])
+
+                def decide(label: str, item=candidate, item_rank=rank) -> str:
+                    event = record_taste_choice(bundle, item, label, taste_events, embedder)
+                    latest_events[item_rank] = event.event_id
+                    # Keep the v1 log usable as a rollback artifact.
+                    if label in {"keep", "discard"}:
+                        record_choice(bundle, item, label, choices_path, embedder)
+                    report = train_taste(taste_events, taste_model)
+                    return (
+                        f"Recorded **{label}** for candidate {item_rank}. Taste: "
+                        f"{report['observations']} events · "
+                        f"confidence {report['confidence']:.0%} · v2"
+                    )
+
+                def undo_choice(item_rank=rank) -> str:
+                    event_id = latest_events.get(item_rank)
+                    if not event_id:
+                        return "Nothing to undo for this candidate."
+                    TasteEventStore(taste_events).undo(event_id)
+                    report = train_taste(taste_events, taste_model)
+                    latest_events.pop(item_rank, None)
+                    return f"Undone. Taste: {report['observations']} events · v2"
+
+                love_handler = partial(decide, "love")
+                keep_handler = partial(decide, "keep")
+                discard_handler = partial(decide, "discard")
+                undo_handler = partial(undo_choice)
+                love.click(fn=love_handler, outputs=status)
+                keep.click(fn=keep_handler, outputs=status)
+                discard.click(fn=discard_handler, outputs=status)
+                undo.click(fn=undo_handler, outputs=status)
                 gr.HTML(render_candidate_navigation(rank, len(bundle.candidates)))
+        if len(bundle.candidates) >= 2:
+            comparison = sorted(
+                bundle.candidates,
+                key=lambda item: (
+                    -float(item.get("taste_uncertainty", 1.0)),
+                    abs(float(item.get("taste", 0.5)) - 0.5),
+                    int(item["rank"]),
+                ),
+            )[:2]
+            with gr.Group():
+                gr.Markdown("## Optional comparison\nWhich direction is more you?")
+                with gr.Row():
+                    gr.Audio(value=str(candidate_path(bundle, comparison[0])), label="Direction A")
+                    gr.Audio(value=str(candidate_path(bundle, comparison[1])), label="Direction B")
+                with gr.Row():
+                    prefer_a = gr.Button("A")
+                    prefer_b = gr.Button("B")
+                    neither = gr.Button("Neither")
+                    skip = gr.Button("Skip")
+
+                def compare(label: str) -> str:
+                    event = record_pairwise_choice(
+                        bundle,
+                        comparison[0],
+                        comparison[1],
+                        label,
+                        taste_events,
+                        embedder,
+                    )
+                    if event is None:
+                        return "Comparison skipped or already recorded."
+                    report = train_taste(taste_events, taste_model)
+                    return (
+                        f"Comparison recorded. Taste: {report['observations']} events · "
+                        f"confidence {report['confidence']:.0%} · v2"
+                    )
+
+                prefer_a.click(fn=partial(compare, "prefer_a"), outputs=status)
+                prefer_b.click(fn=partial(compare, "prefer_b"), outputs=status)
+                neither.click(fn=partial(compare, "neither"), outputs=status)
+                skip.click(fn=partial(compare, "skip"), outputs=status)
         retrain = gr.Button("Retrain critic")
 
         def retrain_critic() -> str:
@@ -239,15 +402,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--choices", type=Path, default=Path("choices.jsonl"))
     parser.add_argument("--critic-model", type=Path, default=Path("models/critic.joblib"))
+    parser.add_argument("--taste-events", type=Path, default=Path("taste/events.jsonl"))
+    parser.add_argument("--taste-model", type=Path, default=Path("taste/model.joblib"))
     parser.add_argument(
         "--share", action="store_true", help="Create a Gradio share link (not local-only)"
     )
     args = parser.parse_args(argv)
     if args.share:
         raise SystemExit("Diverge is local-only; Gradio share links are disabled.")
-    build_app(args.run_dir, choices_path=args.choices, critic_model=args.critic_model).launch(
-        inbrowser=True, share=False
-    )
+    build_app(
+        args.run_dir,
+        choices_path=args.choices,
+        critic_model=args.critic_model,
+        taste_events=args.taste_events,
+        taste_model=args.taste_model,
+    ).launch(inbrowser=True, share=False)
     return 0
 
 

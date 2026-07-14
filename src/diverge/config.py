@@ -29,6 +29,11 @@ class RunConfig:
     generation_batch_size: int = 8
     self_novelty_weight: float = 0.05
     output_dir: Path = Path("runs")
+    taste_events_path: Path = Path("taste/events.jsonl")
+    taste_model_path: Path = Path("taste/model.joblib")
+    opinion: int = 50
+    taste_learning_enabled: bool = True
+    prompt_enrichment_enabled: bool = True
 
     def __post_init__(self) -> None:
         self.source = Path(self.source)
@@ -53,6 +58,8 @@ class RunConfig:
             raise ValueError("lock_threshold must be in 0..1")
         if not 0 <= self.self_novelty_weight <= 1:
             raise ValueError("self_novelty_weight must be in 0..1")
+        if not 0 <= self.opinion <= 100:
+            raise ValueError("opinion must be in 0..100")
         if self.references:
             if any(not 0 <= weight <= 1 for _, weight in self.references):
                 raise ValueError("reference weights must be in 0..1")
@@ -70,13 +77,22 @@ class RunConfig:
         self.critic_model = Path(self.critic_model) if self.critic_model else None
         self.choices_path = Path(self.choices_path)
         self.output_dir = Path(self.output_dir)
+        self.taste_events_path = Path(self.taste_events_path)
+        self.taste_model_path = Path(self.taste_model_path)
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["source"] = str(self.source)
         result["references"] = [[str(p), w] for p, w in self.references]
         result["locks"] = sorted(self.locks)
-        for key in ("library_index", "critic_model", "choices_path", "output_dir"):
+        for key in (
+            "library_index",
+            "critic_model",
+            "choices_path",
+            "output_dir",
+            "taste_events_path",
+            "taste_model_path",
+        ):
             result[key] = str(result[key]) if result[key] is not None else None
         return result
 
