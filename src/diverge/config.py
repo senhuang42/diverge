@@ -36,6 +36,7 @@ class RunConfig:
     prompt_enrichment_enabled: bool = True
     parent_run_id: str | None = None
     parent_candidate: int | None = None
+    host_context: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.source = Path(self.source)

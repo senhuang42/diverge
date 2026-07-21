@@ -24,6 +24,29 @@ int main()
         if (captureCapacitySamples(sampleRate) != static_cast<int>(sampleRate * 30.0))
             return fail("capture capacity did not follow the host sample rate");
 
+    HostPositionFacts host;
+    host.sampleRate = 48000.0;
+    auto plan = planBarCapture(host, 4, 512);
+    if (plan.startOffset != 0 || plan.targetSamples != 384000)
+        return fail("host-free capture did not start immediately at the requested bar length");
+    host.available = true;
+    plan = planBarCapture(host, 4, 512);
+    if (!plan.waitingForTransport || plan.startOffset >= 0)
+        return fail("stopped host capture was not armed for transport");
+    host.isPlaying = true;
+    host.bpm = 120.0;
+    host.ppqAvailable = true;
+    host.ppqPosition = 3.999;
+    plan = planBarCapture(host, 2, 512);
+    if (plan.startOffset != 24 || plan.targetSamples != 192000)
+        return fail("capture did not align to the next host bar");
+    host.ppqPosition = 3.0;
+    if (planBarCapture(host, 2, 512).startOffset >= 0)
+        return fail("capture began before the next host bar reached the block");
+    host.ppqPosition = 4.0;
+    if (planBarCapture(host, 2, 512).startOffset != 0)
+        return fail("capture missed an exact host bar boundary");
+
     const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory)
                           .getNonexistentChildFile("diverge-host-audio", {}, false);
     if (!root.createDirectory()) return fail("could not create capture fixture directory");

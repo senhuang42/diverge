@@ -57,8 +57,9 @@ For a host-free smoke test, open
 
 Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
 the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.
-Mono and stereo tracks remain mono and stereo when captured; captures use the active host sample
-rate and are capped at 30 seconds.
+Choose a 1, 2, 4, or 8-bar capture. In a host, recording arms until the next bar and then stops at
+the requested length. Mono/stereo layout, sample rate, tempo, and time signature are preserved as
+host facts in the run config. Host-free capture starts immediately with a 120 BPM fallback.
 
 Keep, Pass, Favorite, Use in DAW, and Branch are independent candidate choices: recording one does
 not erase another. Choice changes are appended to each run's `decision-events.jsonl`; the current

@@ -20,6 +20,47 @@ int captureCapacitySamples(double sampleRate) noexcept
     return juce::jmax(1, static_cast<int>(std::llround(sampleRate * 30.0)));
 }
 
+BarCapturePlan planBarCapture(const HostPositionFacts& host, int bars,
+                              int blockSamples) noexcept
+{
+    const auto safeBars = juce::jlimit(1, 8, bars);
+    const auto safeRate = host.sampleRate > 0.0 ? host.sampleRate : 44100.0;
+    const auto safeBpm = host.bpm > 0.0 ? host.bpm : 120.0;
+    const auto denominator = host.timeSignatureDenominator > 0
+                                 ? host.timeSignatureDenominator
+                                 : 4;
+    const auto numerator = host.timeSignatureNumerator > 0 ? host.timeSignatureNumerator : 4;
+    const auto quartersPerBar = static_cast<double>(numerator) * 4.0
+                                / static_cast<double>(denominator);
+    BarCapturePlan result;
+    result.targetSamples = juce::jmin(
+        captureCapacitySamples(safeRate),
+        static_cast<int>(std::llround(static_cast<double>(safeBars) * quartersPerBar
+                                      * 60.0 / safeBpm * safeRate)));
+    if (!host.available)
+    {
+        result.startOffset = 0;
+        return result;
+    }
+    if (!host.isPlaying)
+    {
+        result.waitingForTransport = true;
+        return result;
+    }
+    if (host.bpm <= 0.0 || !host.ppqAvailable)
+    {
+        result.startOffset = 0;
+        return result;
+    }
+    auto phase = std::fmod(host.ppqPosition, quartersPerBar);
+    if (phase < 0.0) phase += quartersPerBar;
+    const auto quartersToBoundary = phase < 1.0e-6 ? 0.0 : quartersPerBar - phase;
+    const auto offset = static_cast<int>(std::llround(
+        quartersToBoundary * 60.0 / safeBpm * safeRate));
+    if (offset < blockSamples) result.startOffset = juce::jmax(0, offset);
+    return result;
+}
+
 bool writeCapturedWav(const juce::File& destination,
                       const juce::AudioBuffer<float>& audio,
                       int samples,

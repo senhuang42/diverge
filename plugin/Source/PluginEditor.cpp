@@ -347,7 +347,8 @@ void DivergeAudioProcessorEditor::configureUi()
 
     for (auto* component : std::initializer_list<juce::Component*> {
              &brandLabel, &promiseLabel, &localBadge, &settingsButton,
-             &sourceSection, sourceCard.get(), &recordButton, &directionSection, directionCard.get(),
+             &sourceSection, sourceCard.get(), &recordButton, &captureLength,
+             &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
              &changeSection, &changeSlider, &familiarLabel, &wildLabel,
              &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton, &cancelButton,
@@ -400,6 +401,12 @@ void DivergeAudioProcessorEditor::configureUi()
     removeDirectionButton.setTooltip("Remove the direction reference from this brief");
     removeDirectionButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::danger);
     recordButton.onClick = [this] { toggleCapture(); };
+    captureLength.addItem("1 bar", 1);
+    captureLength.addItem("2 bars", 2);
+    captureLength.addItem("4 bars", 4);
+    captureLength.addItem("8 bars", 8);
+    captureLength.setSelectedId(4, juce::dontSendNotification);
+    captureLength.setTooltip("Capture length; recording starts on the next host bar");
     addDirectionButton.onClick = [this]
     {
         showDirectionText = !showDirectionText;
@@ -846,6 +853,7 @@ void DivergeAudioProcessorEditor::resized()
         sourceSection.setBounds(area.removeFromTop(22));
         auto source = area.removeFromTop(104);
         recordButton.setBounds(source.removeFromRight(112).reduced(10, 28));
+        captureLength.setBounds(source.removeFromRight(104).reduced(6, 28));
         source.removeFromRight(8);
         sourceCard->setBounds(source);
         area.removeFromTop(14);
@@ -964,7 +972,8 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     if (visible) closeRecentImmediately();
     const auto generating = audioProcessor.generation().isActive();
     for (auto* component : std::initializer_list<juce::Component*> {
-             &sourceSection, sourceCard.get(), &recordButton, &directionSection, directionCard.get(),
+             &sourceSection, sourceCard.get(), &recordButton, &captureLength,
+             &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton,
              &changeSection, &changeSlider, &familiarLabel, &wildLabel, &preserveSection,
              &grooveLock, &melodyLock, &timbreLock, &generateButton, &progressLabel, &privacyLabel })
@@ -1088,18 +1097,27 @@ void DivergeAudioProcessorEditor::setAudioSlot(int slot, const juce::File& file)
 
 void DivergeAudioProcessorEditor::toggleCapture()
 {
-    if (!audioProcessor.isCapturing())
+    if (recordButton.getButtonText() != "Stop")
     {
-        audioProcessor.beginCapture();
+        const auto bars = captureLength.getSelectedId();
+        audioProcessor.beginCapture(bars);
         recordButton.setButtonText("Stop");
-        showToast("Recording - up to 30 seconds");
+        captureLength.setEnabled(false);
+        const auto host = audioProcessor.hostPosition();
+        showToast(host.available && !host.isPlaying
+                      ? "Armed for " + juce::String(bars) + " bars - start the host transport"
+                      : "Capturing " + juce::String(bars) + " bars");
     }
     else
     {
         const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
                               .getNonexistentChildFile("diverge-capture", ".wav");
-        if (audioProcessor.finishCapture(file)) setAudioSlot(0, file);
+        if (audioProcessor.finishCapture(file))
+            setAudioSlot(0, file);
+        else
+            showToast("No audio was captured");
         recordButton.setButtonText("Record");
+        captureLength.setEnabled(true);
     }
 }
 
@@ -1194,6 +1212,22 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("generation_batch_size", 8);
     object->setProperty("self_novelty_weight", 0.05);
     object->setProperty("output_dir", outputEditor.getText().trim());
+    const auto host = audioProcessor.hostPosition();
+    auto hostContext = juce::JSON::parse("{}");
+    auto* hostObject = hostContext.getDynamicObject();
+    hostObject->setProperty("available", host.available);
+    hostObject->setProperty("sample_rate", host.sampleRate);
+    hostObject->setProperty("input_channels", host.inputChannels);
+    hostObject->setProperty("transport_playing", host.isPlaying);
+    hostObject->setProperty("ppq_available", host.ppqAvailable);
+    if (host.bpm > 0.0)
+    {
+        hostObject->setProperty("bpm", host.bpm);
+        hostObject->setProperty("bpm_source", "host");
+    }
+    hostObject->setProperty("time_signature_numerator", host.timeSignatureNumerator);
+    hostObject->setProperty("time_signature_denominator", host.timeSignatureDenominator);
+    object->setProperty("host_context", hostContext);
     const auto parentRun = audioProcessor.state().getProperty("pendingParentRun", {}).toString();
     if (parentRun.isNotEmpty())
     {
@@ -2060,7 +2094,7 @@ void DivergeAudioProcessorEditor::timerCallback()
     updateTransportUi();
     sourceCard->advanceAnimation();
     directionCard->advanceAnimation();
-    if (!audioProcessor.isCapturing() && recordButton.getButtonText() == "Stop") toggleCapture();
+    if (!audioProcessor.isCaptureActive() && recordButton.getButtonText() == "Stop") toggleCapture();
     if (active && progressLabel.isVisible())
         repaint(progressLabel.getBounds().expanded(8, 8));
 }

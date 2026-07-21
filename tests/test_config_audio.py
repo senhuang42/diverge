@@ -9,7 +9,11 @@ from diverge.config import RunConfig
 
 
 def test_config_normalizes_references_and_roundtrips(tmp_path: Path) -> None:
-    config = RunConfig(Path("source.wav"), [(Path("a.wav"), 0.2), (Path("b.wav"), 0.6)])
+    config = RunConfig(
+        Path("source.wav"),
+        [(Path("a.wav"), 0.2), (Path("b.wav"), 0.6)],
+        host_context={"bpm": 124.0, "bpm_source": "host", "input_channels": 2},
+    )
     assert [weight for _, weight in config.references] == pytest.approx([0.25, 0.75])
     assert RunConfig.from_json(config.to_json()).to_dict() == config.to_dict()
 

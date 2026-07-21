@@ -33,9 +33,11 @@ public:
     void getStateInformation(juce::MemoryBlock&) override;
     void setStateInformation(const void*, int) override;
 
-    void beginCapture();
+    void beginCapture(int bars = 4);
     bool finishCapture(const juce::File& destination);
     bool isCapturing() const noexcept { return capturing.load(); }
+    bool isCaptureActive() const noexcept { return captureArmed.load() || capturing.load(); }
+    HostPositionFacts hostPosition() const noexcept;
     bool loadPreview(const juce::File& file, const juce::File& loudnessReference = {});
     void playPreview();
     void stopPreview();
@@ -49,8 +51,18 @@ public:
 private:
     juce::AudioBuffer<float> captureBuffer;
     std::atomic<int> captureWritePosition { 0 };
+    std::atomic<int> captureTargetSamples { 0 };
+    std::atomic<int> captureBars { 4 };
+    std::atomic<bool> captureArmed { false };
     std::atomic<bool> capturing { false };
     double currentSampleRate = 44100.0;
+    std::atomic<bool> hostAvailable { false };
+    std::atomic<bool> hostPlaying { false };
+    std::atomic<double> hostBpm { 0.0 };
+    std::atomic<bool> hostPpqAvailable { false };
+    std::atomic<double> hostPpq { 0.0 };
+    std::atomic<int> hostNumerator { 4 };
+    std::atomic<int> hostDenominator { 4 };
 
     juce::AudioBuffer<float> previewBuffer;
     mutable juce::SpinLock previewLock;

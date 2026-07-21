@@ -26,19 +26,61 @@ bool DivergeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) c
 void DivergeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+    HostPositionFacts host;
+    host.sampleRate = currentSampleRate;
+    host.inputChannels = getTotalNumInputChannels();
+    if (auto* playHead = getPlayHead())
+        if (const auto position = playHead->getPosition())
+        {
+            host.available = true;
+            host.isPlaying = position->getIsPlaying();
+            if (const auto bpm = position->getBpm()) host.bpm = *bpm;
+            if (const auto ppq = position->getPpqPosition())
+            {
+                host.ppqAvailable = true;
+                host.ppqPosition = *ppq;
+            }
+            if (const auto signature = position->getTimeSignature())
+            {
+                host.timeSignatureNumerator = signature->numerator;
+                host.timeSignatureDenominator = signature->denominator;
+            }
+        }
+    hostAvailable = host.available;
+    hostPlaying = host.isPlaying;
+    hostBpm = host.bpm;
+    hostPpqAvailable = host.ppqAvailable;
+    hostPpq = host.ppqPosition;
+    hostNumerator = host.timeSignatureNumerator;
+    hostDenominator = host.timeSignatureDenominator;
+
+    int sourceOffset = 0;
+    if (captureArmed.load())
+    {
+        const auto plan = planBarCapture(host, captureBars.load(), buffer.getNumSamples());
+        if (plan.startOffset >= 0)
+        {
+            sourceOffset = plan.startOffset;
+            captureTargetSamples = plan.targetSamples;
+            captureArmed = false;
+            capturing = true;
+        }
+    }
     if (capturing.load())
     {
         const auto start = captureWritePosition.load();
-        const auto count = juce::jmin(buffer.getNumSamples(), captureBuffer.getNumSamples() - start);
+        const auto remaining = juce::jmin(captureBuffer.getNumSamples(), captureTargetSamples.load())
+                               - start;
+        const auto count = juce::jmin(buffer.getNumSamples() - sourceOffset, remaining);
         if (count > 0)
         {
             for (int channel = 0;
                  channel < juce::jmin(captureBuffer.getNumChannels(), buffer.getNumChannels());
                  ++channel)
-                captureBuffer.copyFrom(channel, start, buffer, channel, 0, count);
+                captureBuffer.copyFrom(channel, start, buffer, channel, sourceOffset, count);
             captureWritePosition += count;
         }
-        if (captureWritePosition.load() >= captureBuffer.getNumSamples())
+        if (captureWritePosition.load() >= captureTargetSamples.load())
             capturing = false;
     }
 
@@ -55,20 +97,39 @@ void DivergeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     }
 }
 
-void DivergeAudioProcessor::beginCapture()
+void DivergeAudioProcessor::beginCapture(int bars)
 {
     captureBuffer.clear();
     captureWritePosition = 0;
-    capturing = true;
+    captureTargetSamples = 0;
+    captureBars = juce::jlimit(1, 8, bars);
+    capturing = false;
+    captureArmed = true;
 }
 
 bool DivergeAudioProcessor::finishCapture(const juce::File& destination)
 {
+    captureArmed = false;
     capturing = false;
     const auto samples = captureWritePosition.load();
     if (samples <= 0)
         return false;
     return writeCapturedWav(destination, captureBuffer, samples, currentSampleRate);
+}
+
+HostPositionFacts DivergeAudioProcessor::hostPosition() const noexcept
+{
+    HostPositionFacts result;
+    result.available = hostAvailable.load();
+    result.isPlaying = hostPlaying.load();
+    result.sampleRate = currentSampleRate;
+    result.inputChannels = getTotalNumInputChannels();
+    result.bpm = hostBpm.load();
+    result.ppqAvailable = hostPpqAvailable.load();
+    result.ppqPosition = hostPpq.load();
+    result.timeSignatureNumerator = hostNumerator.load();
+    result.timeSignatureDenominator = hostDenominator.load();
+    return result;
 }
 
 bool DivergeAudioProcessor::loadPreview(const juce::File& file,

@@ -137,6 +137,7 @@ private:
     std::unique_ptr<WaveformCard> sourceCard;
     std::unique_ptr<WaveformCard> directionCard;
     juce::TextButton recordButton { "Record" };
+    juce::ComboBox captureLength;
     juce::TextButton replaceDirectionButton { "Replace" };
     juce::TextButton removeDirectionButton { "Remove" };
     juce::TextButton addDirectionButton { "+ Text direction" };
