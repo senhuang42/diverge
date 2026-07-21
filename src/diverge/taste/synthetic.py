@@ -17,7 +17,7 @@ PROFILE_NAMES = (
 )
 
 
-def _utility(name: str, value: np.ndarray, category: str, time: int) -> float:
+def synthetic_utility(name: str, value: np.ndarray, category: str, time: int) -> float:
     low, dry, percussive, mode_b = value[:4]
     if name == "low_band":
         return float(low)
@@ -48,7 +48,7 @@ def synthetic_events(
         vector = rng.normal(0, 0.02, 512).astype(np.float32)
         vector[:4] = rng.uniform(0, 1, 4)
         vector /= max(float(np.linalg.norm(vector)), 1e-12)
-        preference = _utility(profile, vector, category, index)
+        preference = synthetic_utility(profile, vector, category, index)
         if profile == "noisy" and rng.random() < 0.35:
             preference = 1 - preference
         label = "keep" if preference >= 0.5 else "discard"

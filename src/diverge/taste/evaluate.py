@@ -249,6 +249,8 @@ def _interval(values: list[float]) -> dict[str, float] | None:
 def evaluate_events(
     events: list[TasteEvent], reports_dir: str | Path = "taste/reports"
 ) -> dict[str, Any]:
+    from .acceptance import run_acceptance_simulations
+
     models = {name: evaluate_model(events, name) for name in MODEL_NAMES}
     synthetic_results: dict[str, dict[str, Any]] = {}
     interval_values: dict[str, dict[str, list[float]]] = {
@@ -295,6 +297,7 @@ def evaluate_events(
         },
         "synthetic_profiles": synthetic_results,
         "synthetic_intervals": intervals,
+        "acceptance": run_acceptance_simulations(),
     }
     target = Path(reports_dir)
     target.mkdir(parents=True, exist_ok=True)
