@@ -31,6 +31,8 @@ class SelectionResult:
     relaxations: list[float]
     weights: dict[str, float]
     spread_lambda: float
+    eligible_count: int
+    requested_count: int
 
 
 def spread_lambda(spread: int) -> float:
@@ -91,13 +93,9 @@ def select_candidates(
             opinion,
             configured_max_taste_weight,
         )
-    threshold = lock_threshold
-    relaxations: list[float] = []
-    survivors = [c for c in candidates if c.lock_score >= threshold]
-    while len(survivors) < n_return and threshold > 0:
-        threshold = round(max(0.0, threshold - 0.05), 2)
-        relaxations.append(threshold)
-        survivors = [c for c in candidates if c.lock_score >= threshold]
+    # Preserve is a hard contract. A sparse valid pool must produce a smaller set instead of
+    # quietly weakening the threshold to fill every result slot.
+    survivors = [c for c in candidates if c.lock_score >= lock_threshold]
     lam = spread_lambda(spread)
     remaining = sorted(survivors, key=lambda c: (-c.utility, c.index))
     if allocate_roles and opinion is not None and n_return == 8 and len(remaining) >= 12:
@@ -115,7 +113,15 @@ def select_candidates(
             winner = max(remaining, key=objective)
             remaining.remove(winner)
             chosen.append(winner)
-    return SelectionResult(chosen, threshold, relaxations, weights, lam)
+    return SelectionResult(
+        chosen,
+        lock_threshold,
+        [],
+        weights,
+        lam,
+        eligible_count=len(survivors),
+        requested_count=n_return,
+    )
 
 
 def _not_duplicate(candidate: Candidate, chosen: list[Candidate], threshold: float = 0.985) -> bool:

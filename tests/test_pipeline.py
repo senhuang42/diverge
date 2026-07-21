@@ -42,6 +42,11 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert (run_dir / "map.json").exists()
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(manifest["candidates"]) == 3
+    assert manifest["selection"]["lock_threshold_requested"] == 0.55
+    assert manifest["selection"]["lock_threshold_used"] == 0.55
+    assert manifest["selection"]["relaxations"] == []
+    assert manifest["selection"]["returned_count"] == 3
+    assert manifest["selection"]["shortfall"] == 0
     assert manifest["taste"]["version"] == 2
     structured = [
         json.loads(item.removeprefix("DIVERGE_EVENT "))

@@ -236,6 +236,11 @@ def run_session(
             "lock_threshold_requested": config.lock_threshold,
             "lock_threshold_used": result.threshold_used,
             "relaxations": result.relaxations,
+            "eligible_count": result.eligible_count,
+            "requested_count": result.requested_count,
+            "returned_count": len(result.selected),
+            "shortfall": max(0, result.requested_count - len(result.selected)),
+            "can_try_more": len(result.selected) < result.requested_count,
             "utility_weights": result.weights,
         },
         "taste": {
@@ -252,7 +257,7 @@ def run_session(
         "candidates": records,
     }
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    all_embeddings = np.vstack([source_embedding, reference_embeddings, winner_embeddings])
+    all_embeddings = np.vstack([source_embedding, *reference_embeddings, *winner_embeddings])
     coords = project_2d(all_embeddings)
     labels = [{"kind": "source", "path": str(config.source)}]
     labels += [{"kind": "reference", "path": str(path)} for path, _ in config.references]

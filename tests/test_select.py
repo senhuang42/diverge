@@ -21,15 +21,18 @@ def test_spread_zero_returns_top_utility_cluster() -> None:
     assert [item.index for item in result.selected] == [0, 1]
 
 
-def test_spread_high_covers_space_and_locks_relax() -> None:
+def test_preserve_threshold_is_never_relaxed_to_fill_the_set() -> None:
     candidates = [
         _candidate(0, [1, 0], 1.0, lock=0.6),
         _candidate(1, [0.99, 0.1], 0.9, lock=0.5),
         _candidate(2, [-1, 0], 0.3, lock=0.5),
     ]
     result = select_candidates(candidates, 2, spread=100, drift=0, lock_threshold=0.55)
-    assert {item.index for item in result.selected} == {0, 2}
-    assert result.threshold_used == 0.5
+    assert [item.index for item in result.selected] == [0]
+    assert result.threshold_used == 0.55
+    assert result.relaxations == []
+    assert result.eligible_count == 1
+    assert result.requested_count == 2
 
 
 def test_drift_monotonically_prefers_novel_candidates() -> None:
