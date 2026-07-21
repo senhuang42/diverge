@@ -90,6 +90,18 @@ RunModel RunModel::load(const juce::File& runDirectory)
         const auto config = manifest->getProperty("config");
         result.source = juce::File(config.getProperty("source", {}).toString());
         result.requestedCount = static_cast<int>(config.getProperty("n_return", 8));
+        result.change = static_cast<int>(config.getProperty("transform", 45));
+        result.range = static_cast<int>(config.getProperty("spread", 60));
+        result.direction = config.getProperty("style_text_hint", {}).toString();
+        const auto briefLocks = config.getProperty("locks", {});
+        result.preserveGroove = false;
+        if (const auto* lockNames = briefLocks.getArray())
+            for (const auto& lock : *lockNames)
+            {
+                result.preserveGroove = result.preserveGroove || lock.toString() == "groove";
+                result.preserveMelody = result.preserveMelody || lock.toString() == "melody";
+                result.preserveTimbre = result.preserveTimbre || lock.toString() == "timbre";
+            }
         result.parentRunId = config.getProperty("parent_run_id", {}).toString();
         result.parentCandidate = static_cast<int>(config.getProperty("parent_candidate", 0));
         const auto taste = manifest->getProperty("taste");

@@ -1281,6 +1281,29 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     }
     currentRun = run;
     restoreRunDecisions(sameRun);
+    if (!sameRun)
+    {
+        audioSlots = {};
+        audioSlots[0] = loadedRun.source;
+        for (size_t index = 0; index < juce::jmin<size_t>(2, loadedRun.references.size()); ++index)
+            audioSlots[index + 1] = loadedRun.references[index];
+        workflow.audioSlots = audioSlots;
+        workflow.change = loadedRun.change;
+        workflow.range = loadedRun.range;
+        workflow.preserveGroove = loadedRun.preserveGroove;
+        workflow.preserveMelody = loadedRun.preserveMelody;
+        workflow.preserveTimbre = loadedRun.preserveTimbre;
+        workflow.direction = loadedRun.direction;
+        changeSlider.setValue(loadedRun.change, juce::dontSendNotification);
+        grooveLock.setToggleState(loadedRun.preserveGroove, juce::dontSendNotification);
+        melodyLock.setToggleState(loadedRun.preserveMelody, juce::dontSendNotification);
+        timbreLock.setToggleState(loadedRun.preserveTimbre, juce::dontSendNotification);
+        styleEditor.setText(loadedRun.direction, false);
+        showDirectionText = loadedRun.direction.isNotEmpty();
+        addDirectionButton.setButtonText(showDirectionText ? "- Hide text" : "+ Text direction");
+        refreshSlotCard(0);
+        refreshSlotCard(1);
+    }
     map.setPoints(loadedRun.mapPoints);
     for (int index = 0; index < 8; ++index)
     {

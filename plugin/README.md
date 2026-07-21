@@ -53,7 +53,8 @@ For a host-free smoke test, open
 5. Drag a selected card or choose **Use in DAW**. Diverge first retains a content-addressed object
    and hands the DAW a stable named export under the user's application-support library. Branch
    sources are retained there too, with append-only provenance events. Branch with **More like
-   this**, recover a prior batch from **Recent**, or inspect the synchronized **Map** view.
+   this**, recover a prior batch from **Recent**, or inspect the synchronized **Map** view. Recent
+   restores the saved source, reference, direction, Change, Preserve settings, and choices.
 
 Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
 the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.

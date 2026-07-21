@@ -77,6 +77,12 @@ struct RunModel
     std::vector<juce::File> references;
     std::vector<CandidateModel> candidates;
     std::vector<MapPoint> mapPoints;
+    int change = 45;
+    int range = 60;
+    bool preserveGroove = true;
+    bool preserveMelody = false;
+    bool preserveTimbre = false;
+    juce::String direction;
     juce::String parentRunId;
     int parentCandidate = 0;
     int tasteObservations = 0;

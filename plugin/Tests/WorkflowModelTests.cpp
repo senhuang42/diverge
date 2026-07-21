@@ -46,7 +46,11 @@ int main()
                                   .getNonexistentChildFile("diverge-short-run", {}, false);
     if (!runDirectory.createDirectory()) return fail("could not create run fixture");
     const auto manifest = R"json({
-      "config": {"source": "/tmp/source.wav", "n_return": 8},
+      "config": {
+        "source": "/tmp/source.wav", "references": [["/tmp/ref.wav", 1.0]],
+        "n_return": 8, "transform": 62, "spread": 35,
+        "locks": ["melody", "timbre"], "style_text_hint": "dusty and restrained"
+      },
       "selection": {
         "requested_count": 8,
         "returned_count": 3,
@@ -65,6 +69,10 @@ int main()
     if (!shortRun.isValid() || shortRun.requestedCount != 8 || shortRun.returnedCount != 3
         || shortRun.shortfall != 5 || !shortRun.canTryMore)
         return fail("valid result shortfall was not loaded");
+    if (shortRun.change != 62 || shortRun.range != 35 || shortRun.preserveGroove
+        || !shortRun.preserveMelody || !shortRun.preserveTimbre
+        || shortRun.direction != "dusty and restrained" || shortRun.references.size() != 1)
+        return fail("run brief was not restored from the manifest");
     const auto emptyManifest = R"json({
       "config": {"source": "/tmp/source.wav", "n_return": 8},
       "selection": {"requested_count": 8, "returned_count": 0, "shortfall": 8,
