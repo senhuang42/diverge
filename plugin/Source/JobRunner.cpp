@@ -33,6 +33,7 @@ void JobRunner::cancel()
     if (process.isRunning())
         process.kill();
     stopThread(5000);
+    process.waitForProcessToFinish(1000);
     running = false;
     if (wasRunning)
         updateSnapshot([](Snapshot& state)

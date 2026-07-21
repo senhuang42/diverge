@@ -305,7 +305,13 @@ DivergeAudioProcessorEditor::~DivergeAudioProcessorEditor()
 {
     saveSettings();
     audioProcessor.stopPreview();
-    if (decisionProcess && decisionProcess->isRunning()) decisionProcess->kill();
+    criticQueue.clear();
+    if (decisionProcess)
+    {
+        if (decisionProcess->isRunning()) decisionProcess->kill();
+        decisionProcess->waitForProcessToFinish(1000);
+        decisionProcess.reset();
+    }
     setLookAndFeel(nullptr);
 }
 

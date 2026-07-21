@@ -58,3 +58,24 @@ target_link_libraries(DivergePlugin PRIVATE
   juce::juce_recommended_lto_flags
   juce::juce_recommended_warning_flags
 )
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(DivergeJobRunnerTests
+    Tests/JobRunnerTests.cpp
+    Source/JobRunner.cpp
+    Source/JobRunner.h
+  )
+  target_include_directories(DivergeJobRunnerTests PRIVATE Source)
+  target_compile_definitions(DivergeJobRunnerTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+  )
+  target_link_libraries(DivergeJobRunnerTests PRIVATE
+    juce::juce_core
+    juce::juce_events
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+  )
+  add_test(NAME DivergeJobRunnerLifecycle COMMAND DivergeJobRunnerTests)
+endif()
