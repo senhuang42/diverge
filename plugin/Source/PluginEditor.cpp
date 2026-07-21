@@ -4,6 +4,28 @@
 
 namespace
 {
+int tasteEventIndex(CandidateDecision decision)
+{
+    switch (decision)
+    {
+        case CandidateDecision::keep: return 0;
+        case CandidateDecision::pass: return 1;
+        case CandidateDecision::favorite: return 2;
+        case CandidateDecision::exported: return 3;
+        case CandidateDecision::branched:
+        case CandidateDecision::none: break;
+    }
+    return -1;
+}
+
+CandidateDecision tasteActionFromLabel(const juce::String& label)
+{
+    if (label == "discard") return CandidateDecision::pass;
+    if (label == "love") return CandidateDecision::favorite;
+    if (label == "export") return CandidateDecision::exported;
+    return CandidateDecision::keep;
+}
+
 void configureSectionLabel(juce::Label& label, const juce::String& text)
 {
     label.setText(text, juce::dontSendNotification);
@@ -1400,16 +1422,43 @@ void DivergeAudioProcessorEditor::recordDecision(CandidateDecision decision)
 {
     if (selectedCandidate <= 0) return;
     const auto index = static_cast<size_t>(selectedCandidate - 1);
-    workflow.decisions[index] = decision;
-    if (auto* candidate = loadedRun.candidate(selectedCandidate)) candidate->decision = decision;
+    auto& choices = workflow.choices[index];
+    const auto enabled = decision == CandidateDecision::exported || !choices.value(decision);
+    if (enabled && (decision == CandidateDecision::keep || decision == CandidateDecision::favorite))
+    {
+        const auto asset = assetLibrary.retain(candidateCards[index]->file(), currentRun.getFileName(),
+                                               selectedCandidate, decisionToString(decision), false);
+        if (!asset.isValid())
+        {
+            showToast("Could not protect this candidate; the choice was not recorded");
+            return;
+        }
+    }
+    choices.set(decision, enabled);
+    workflow.refreshVisualDecisions();
+    if (auto* candidate = loadedRun.candidate(selectedCandidate))
+        candidate->decision = choices.visualDecision();
+    lastDecisionActions[index] = decision;
+    appendChoiceEvent(decision, enabled);
     const auto label = decision == CandidateDecision::pass ? juce::String("discard")
                       : decision == CandidateDecision::favorite ? juce::String("love")
                       : decision == CandidateDecision::exported ? juce::String("export")
                       : juce::String("keep");
-    runCriticCommand({ "add", candidateCards[index]->file().getFullPathName(), label,
-                       "--events", tasteEventsFile().getFullPathName(), "--model", tasteModelFile().getFullPathName(),
-                       "--models-dir", modelsEditor.getText().trim(), "--batch-id", currentRun.getFileName() });
-    const auto copy = decision == CandidateDecision::pass ? "Passed - Cmd-Z to undo"
+    if (enabled)
+        runCriticCommand({ "add", candidateCards[index]->file().getFullPathName(), label,
+                           "--events", tasteEventsFile().getFullPathName(), "--model", tasteModelFile().getFullPathName(),
+                           "--models-dir", modelsEditor.getText().trim(), "--batch-id", currentRun.getFileName() });
+    else
+    {
+        const auto eventIndex = tasteEventIndex(decision);
+        if (eventIndex >= 0
+            && lastTasteEventIds[index][static_cast<size_t>(eventIndex)].isNotEmpty())
+            runCriticCommand(
+                { "undo", lastTasteEventIds[index][static_cast<size_t>(eventIndex)], "--events",
+                  tasteEventsFile().getFullPathName(), "--model", tasteModelFile().getFullPathName() });
+    }
+    const auto copy = !enabled ? "Choice removed - other choices are unchanged"
+                      : decision == CandidateDecision::pass ? "Passed - Cmd-Z to undo"
                       : decision == CandidateDecision::favorite ? "Favorited - Diverge will lean toward this"
                       : decision == CandidateDecision::exported ? "Marked used in DAW"
                       : "Kept - Diverge will learn from this";
@@ -1425,11 +1474,18 @@ void DivergeAudioProcessorEditor::undoDecision()
 {
     if (selectedCandidate <= 0) return;
     const auto index = static_cast<size_t>(selectedCandidate - 1);
-    const auto eventId = lastTasteEventIds[index];
+    const auto action = lastDecisionActions[index];
+    if (action == CandidateDecision::none || !workflow.choices[index].value(action)) return;
+    const auto eventIndex = tasteEventIndex(lastDecisionActions[index]);
+    const auto eventId = eventIndex >= 0
+                             ? lastTasteEventIds[index][static_cast<size_t>(eventIndex)]
+                             : juce::String();
     if (eventId.isNotEmpty())
         runCriticCommand({ "undo", eventId, "--events", tasteEventsFile().getFullPathName(),
                            "--model", tasteModelFile().getFullPathName() });
-    workflow.decisions[index] = CandidateDecision::none;
+    workflow.choices[index].set(action, false);
+    workflow.refreshVisualDecisions();
+    appendChoiceEvent(action, false);
     showToast("Decision undone");
     updateTransportUi();
     updateResultVisibility();
@@ -1469,6 +1525,10 @@ void DivergeAudioProcessorEditor::branchFromSelected()
     }
     audioProcessor.state().setProperty("pendingParentRun", currentRun.getFileName(), nullptr);
     audioProcessor.state().setProperty("pendingParentCandidate", selectedCandidate, nullptr);
+    workflow.choices[static_cast<size_t>(selectedCandidate - 1)].branched = true;
+    workflow.refreshVisualDecisions();
+    appendChoiceEvent(CandidateDecision::branched, true);
+    saveRunDecisions();
     setAudioSlot(0, asset.object);
     setPrepareVisible(true);
     showToast("Variation " + juce::String(selectedCandidate).paddedLeft('0', 2) + " is now your source");
@@ -1493,34 +1553,77 @@ void DivergeAudioProcessorEditor::saveRunDecisions()
     if (!currentRun.isDirectory()) return;
     auto root = juce::JSON::parse("{}");
     auto* object = root.getDynamicObject();
+    object->setProperty("schema_version", 2);
     object->setProperty("run_id", currentRun.getFileName());
     juce::Array<juce::var> rows;
     for (int index = 0; index < 8; ++index)
     {
-        const auto decision = workflow.decisions[static_cast<size_t>(index)];
-        if (decision == CandidateDecision::none) continue;
+        const auto& choices = workflow.choices[static_cast<size_t>(index)];
+        if (!choices.kept && !choices.passed && !choices.favorite && !choices.exported
+            && !choices.branched) continue;
         auto row = juce::JSON::parse("{}");
         row.getDynamicObject()->setProperty("rank", index + 1);
-        row.getDynamicObject()->setProperty("decision", decisionToString(decision));
+        row.getDynamicObject()->setProperty("keep", choices.kept);
+        row.getDynamicObject()->setProperty("pass", choices.passed);
+        row.getDynamicObject()->setProperty("favorite", choices.favorite);
+        row.getDynamicObject()->setProperty("export", choices.exported);
+        row.getDynamicObject()->setProperty("branch", choices.branched);
         rows.add(row);
     }
-    object->setProperty("decisions", rows);
+    object->setProperty("choices", rows);
     currentRun.getChildFile("decisions.json").replaceWithText(juce::JSON::toString(root, true));
 }
 
 void DivergeAudioProcessorEditor::restoreRunDecisions(bool sameRun)
 {
-    if (!sameRun) workflow.decisions = {};
+    if (!sameRun)
+    {
+        workflow.choices = {};
+        workflow.refreshVisualDecisions();
+    }
     const auto value = juce::JSON::parse(currentRun.getChildFile("decisions.json"));
     if (const auto* object = value.getDynamicObject())
-        if (const auto* rows = object->getProperty("decisions").getArray())
+    {
+        if (const auto* rows = object->getProperty("choices").getArray())
             for (const auto& row : *rows)
             {
                 const auto rank = static_cast<int>(row.getProperty("rank", 0));
                 if (rank >= 1 && rank <= 8)
-                    workflow.decisions[static_cast<size_t>(rank - 1)] =
-                        decisionFromString(row.getProperty("decision", {}).toString());
+                {
+                    auto& choices = workflow.choices[static_cast<size_t>(rank - 1)];
+                    choices.kept = static_cast<bool>(row.getProperty("keep", false));
+                    choices.passed = static_cast<bool>(row.getProperty("pass", false));
+                    choices.favorite = static_cast<bool>(row.getProperty("favorite", false));
+                    choices.exported = static_cast<bool>(row.getProperty("export", false));
+                    choices.branched = static_cast<bool>(row.getProperty("branch", false));
+                }
             }
+        else if (const auto* legacyRows = object->getProperty("decisions").getArray())
+            for (const auto& row : *legacyRows)
+            {
+                const auto rank = static_cast<int>(row.getProperty("rank", 0));
+                if (rank >= 1 && rank <= 8)
+                    workflow.choices[static_cast<size_t>(rank - 1)] =
+                        CandidateChoices::fromLegacy(
+                            decisionFromString(row.getProperty("decision", {}).toString()));
+            }
+    }
+    workflow.refreshVisualDecisions();
+}
+
+void DivergeAudioProcessorEditor::appendChoiceEvent(CandidateDecision decision, bool enabled)
+{
+    if (!currentRun.isDirectory() || selectedCandidate <= 0) return;
+    auto event = juce::JSON::parse("{}");
+    auto* object = event.getDynamicObject();
+    object->setProperty("event_id", juce::Uuid().toString());
+    object->setProperty("timestamp", juce::Time::getCurrentTime().toISO8601(true));
+    object->setProperty("type", decisionToString(decision));
+    object->setProperty("enabled", enabled);
+    object->setProperty("run_id", currentRun.getFileName());
+    object->setProperty("candidate_rank", selectedCandidate);
+    currentRun.getChildFile("decision-events.jsonl").appendText(
+        juce::JSON::toString(event, true) + "\n", false, false, "\n");
 }
 
 void DivergeAudioProcessorEditor::refreshRecentRuns()
@@ -1552,13 +1655,20 @@ void DivergeAudioProcessorEditor::refreshRecentRuns()
         int kept = 0;
         const auto decisions = juce::JSON::parse(run.getChildFile("decisions.json"));
         if (const auto* object = decisions.getDynamicObject())
-            if (const auto* rows = object->getProperty("decisions").getArray())
+        {
+            if (const auto* rows = object->getProperty("choices").getArray())
                 for (const auto& row : *rows)
                 {
-                    const auto decision = decisionFromString(row.getProperty("decision", {}).toString());
-                    if (decision == CandidateDecision::keep || decision == CandidateDecision::favorite
-                        || decision == CandidateDecision::exported) ++kept;
+                    if (static_cast<bool>(row.getProperty("keep", false))
+                        || static_cast<bool>(row.getProperty("favorite", false))
+                        || static_cast<bool>(row.getProperty("export", false))
+                        || static_cast<bool>(row.getProperty("branch", false))) ++kept;
                 }
+            else if (const auto* legacyRows = object->getProperty("decisions").getArray())
+                for (const auto& row : *legacyRows)
+                    if (CandidateChoices::fromLegacy(decisionFromString(
+                            row.getProperty("decision", {}).toString())).positive()) ++kept;
+        }
         card.setAudio(run == currentRun ? "Current run" : "Saved run", "Run source unavailable", model.source);
         const auto date = run.getLastModificationTime().toString(true, true, false, true);
         card.setSupportingText(date + "  /  " + juce::String(kept) + " kept or used");
@@ -1617,9 +1727,7 @@ void DivergeAudioProcessorEditor::updateResultVisibility()
     int visibleCount = 0;
     for (int index = 0; index < 8; ++index)
     {
-        const auto decision = workflow.decisions[static_cast<size_t>(index)];
-        const auto positive = decision == CandidateDecision::keep || decision == CandidateDecision::favorite
-                           || decision == CandidateDecision::exported;
+        const auto positive = workflow.choices[static_cast<size_t>(index)].positive();
         const auto visible = !keptOnly || positive;
         candidateCards[static_cast<size_t>(index)]->setVisible(visible);
         if (visible) ++visibleCount;
@@ -1680,6 +1788,9 @@ void DivergeAudioProcessorEditor::runCriticCommand(const juce::StringArray& argu
     decisionProcess = std::make_unique<juce::ChildProcess>();
     criticAction = arguments[0];
     criticCandidatePath = arguments.size() > 1 ? arguments[1] : juce::String();
+    criticChoiceAction = criticAction == "add" && arguments.size() > 2
+                             ? tasteActionFromLabel(arguments[2])
+                             : CandidateDecision::none;
     juce::StringArray command { pythonEditor.getText().trim(), "-m", "diverge.cli", "taste" };
     command.addArray(arguments);
     decisionProcess->start(command, juce::ChildProcess::wantStdOut | juce::ChildProcess::wantStdErr);
@@ -1722,16 +1833,20 @@ void DivergeAudioProcessorEditor::pollCriticProcess()
         if (static_cast<bool>(parsed.getProperty("recorded", true)))
         {
             const auto eventId = parsed.getProperty("event_id", "").toString();
+            const auto eventIndex = tasteEventIndex(criticChoiceAction);
             for (int index = 0; index < 8; ++index)
                 if (candidateCards[static_cast<size_t>(index)]->file().getFullPathName() == criticCandidatePath)
-                    lastTasteEventIds[static_cast<size_t>(index)] = eventId;
+                    if (eventIndex >= 0)
+                        lastTasteEventIds[static_cast<size_t>(index)]
+                                         [static_cast<size_t>(eventIndex)] = eventId;
         }
         updateTasteProfile(parsed);
     }
     else if (criticAction == "undo")
     {
-        for (auto& eventId : lastTasteEventIds)
-            if (eventId == criticCandidatePath) eventId.clear();
+        for (auto& candidateEvents : lastTasteEventIds)
+            for (auto& eventId : candidateEvents)
+                if (eventId == criticCandidatePath) eventId.clear();
         updateTasteProfile(parsed);
     }
     else if (criticAction == "train" || criticAction == "status" || criticAction == "compare")

@@ -22,7 +22,23 @@ enum class CandidateDecision
     keep,
     pass,
     favorite,
-    exported
+    exported,
+    branched
+};
+
+struct CandidateChoices
+{
+    bool kept = false;
+    bool passed = false;
+    bool favorite = false;
+    bool exported = false;
+    bool branched = false;
+
+    bool value(CandidateDecision decision) const noexcept;
+    void set(CandidateDecision decision, bool enabled) noexcept;
+    bool positive() const noexcept { return kept || favorite || exported || branched; }
+    CandidateDecision visualDecision() const noexcept;
+    static CandidateChoices fromLegacy(CandidateDecision decision) noexcept;
 };
 
 struct MapPoint
@@ -87,7 +103,10 @@ struct WorkflowModel
     juce::String direction;
     juce::String activeRunId;
     int selectedCandidate = 0;
+    std::array<CandidateChoices, 8> choices {};
     std::array<CandidateDecision, 8> decisions {};
+
+    void refreshVisualDecisions() noexcept;
 
     void restoreFrom(const juce::ValueTree& state);
     void saveTo(juce::ValueTree& state) const;

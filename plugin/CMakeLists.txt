@@ -117,4 +117,21 @@ if(BUILD_TESTING)
     juce::juce_recommended_warning_flags
   )
   add_test(NAME DivergeAssetLibraryContract COMMAND DivergeAssetLibraryTests)
+
+  add_executable(DivergeWorkflowModelTests
+    Tests/WorkflowModelTests.cpp
+    Source/WorkflowModel.cpp
+    Source/WorkflowModel.h
+  )
+  target_include_directories(DivergeWorkflowModelTests PRIVATE Source)
+  target_compile_definitions(DivergeWorkflowModelTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+  )
+  target_link_libraries(DivergeWorkflowModelTests PRIVATE
+    juce::juce_data_structures
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+  )
+  add_test(NAME DivergeWorkflowChoiceContract COMMAND DivergeWorkflowModelTests)
 endif()

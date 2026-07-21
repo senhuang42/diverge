@@ -17,6 +17,49 @@ juce::String buildExplanation(const CandidateModel& candidate, int count)
 }
 }
 
+bool CandidateChoices::value(CandidateDecision decision) const noexcept
+{
+    switch (decision)
+    {
+        case CandidateDecision::keep: return kept;
+        case CandidateDecision::pass: return passed;
+        case CandidateDecision::favorite: return favorite;
+        case CandidateDecision::exported: return exported;
+        case CandidateDecision::branched: return branched;
+        case CandidateDecision::none: break;
+    }
+    return false;
+}
+
+void CandidateChoices::set(CandidateDecision decision, bool enabled) noexcept
+{
+    switch (decision)
+    {
+        case CandidateDecision::keep: kept = enabled; break;
+        case CandidateDecision::pass: passed = enabled; break;
+        case CandidateDecision::favorite: favorite = enabled; break;
+        case CandidateDecision::exported: exported = enabled; break;
+        case CandidateDecision::branched: branched = enabled; break;
+        case CandidateDecision::none: break;
+    }
+}
+
+CandidateDecision CandidateChoices::visualDecision() const noexcept
+{
+    if (favorite) return CandidateDecision::favorite;
+    if (kept || branched) return CandidateDecision::keep;
+    if (passed) return CandidateDecision::pass;
+    if (exported) return CandidateDecision::exported;
+    return CandidateDecision::none;
+}
+
+CandidateChoices CandidateChoices::fromLegacy(CandidateDecision decision) noexcept
+{
+    CandidateChoices result;
+    result.set(decision, decision != CandidateDecision::none);
+    return result;
+}
+
 bool RunModel::isValid() const noexcept
 {
     return directory.isDirectory() && !candidates.empty();
@@ -121,8 +164,26 @@ void WorkflowModel::restoreFrom(const juce::ValueTree& state)
     activeRunId = state.getProperty("activeRunId", {}).toString();
     selectedCandidate = static_cast<int>(state.getProperty("selectedCandidate", 0));
     for (size_t index = 0; index < decisions.size(); ++index)
-        decisions[index] = decisionFromString(
-            state.getProperty("decision" + juce::String(static_cast<int>(index + 1)), {}).toString());
+    {
+        const auto suffix = juce::String(static_cast<int>(index + 1));
+        const auto hasIndependentState = state.hasProperty("kept" + suffix)
+                                         || state.hasProperty("favorite" + suffix)
+                                         || state.hasProperty("passed" + suffix)
+                                         || state.hasProperty("exported" + suffix)
+                                         || state.hasProperty("branched" + suffix);
+        if (hasIndependentState)
+        {
+            choices[index].kept = static_cast<bool>(state.getProperty("kept" + suffix, false));
+            choices[index].passed = static_cast<bool>(state.getProperty("passed" + suffix, false));
+            choices[index].favorite = static_cast<bool>(state.getProperty("favorite" + suffix, false));
+            choices[index].exported = static_cast<bool>(state.getProperty("exported" + suffix, false));
+            choices[index].branched = static_cast<bool>(state.getProperty("branched" + suffix, false));
+        }
+        else
+            choices[index] = CandidateChoices::fromLegacy(decisionFromString(
+                state.getProperty("decision" + suffix, {}).toString()));
+    }
+    refreshVisualDecisions();
     view = audioSlots[0].existsAsFile() ? WorkflowViewState::ready : WorkflowViewState::needsSetup;
     if (activeRunId.isNotEmpty())
         view = WorkflowViewState::results;
@@ -144,8 +205,22 @@ void WorkflowModel::saveTo(juce::ValueTree& state) const
     state.setProperty("activeRunId", activeRunId, nullptr);
     state.setProperty("selectedCandidate", selectedCandidate, nullptr);
     for (size_t index = 0; index < decisions.size(); ++index)
+    {
+        const auto suffix = juce::String(static_cast<int>(index + 1));
         state.setProperty("decision" + juce::String(static_cast<int>(index + 1)),
                           decisionToString(decisions[index]), nullptr);
+        state.setProperty("kept" + suffix, choices[index].kept, nullptr);
+        state.setProperty("passed" + suffix, choices[index].passed, nullptr);
+        state.setProperty("favorite" + suffix, choices[index].favorite, nullptr);
+        state.setProperty("exported" + suffix, choices[index].exported, nullptr);
+        state.setProperty("branched" + suffix, choices[index].branched, nullptr);
+    }
+}
+
+void WorkflowModel::refreshVisualDecisions() noexcept
+{
+    for (size_t index = 0; index < decisions.size(); ++index)
+        decisions[index] = choices[index].visualDecision();
 }
 
 WorkflowModel WorkflowFixtures::make(WorkflowViewState state, const juce::File& fixtureRun)
@@ -175,6 +250,7 @@ juce::String decisionToString(CandidateDecision decision)
         case CandidateDecision::pass: return "pass";
         case CandidateDecision::favorite: return "favorite";
         case CandidateDecision::exported: return "exported";
+        case CandidateDecision::branched: return "branched";
         case CandidateDecision::none: break;
     }
     return {};
@@ -186,5 +262,6 @@ CandidateDecision decisionFromString(const juce::String& text)
     if (text == "pass") return CandidateDecision::pass;
     if (text == "favorite") return CandidateDecision::favorite;
     if (text == "exported") return CandidateDecision::exported;
+    if (text == "branched") return CandidateDecision::branched;
     return CandidateDecision::none;
 }

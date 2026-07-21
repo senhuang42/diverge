@@ -71,6 +71,7 @@ private:
     void renderBackground();
     void saveRunDecisions();
     void restoreRunDecisions(bool sameRun);
+    void appendChoiceEvent(CandidateDecision, bool enabled);
     void updateResultVisibility();
     void showToast(const juce::String&);
     void updateTasteProfile(const juce::var& status);
@@ -215,8 +216,10 @@ private:
     std::unique_ptr<juce::ChildProcess> decisionProcess;
     juce::String criticAction;
     juce::String criticCandidatePath;
+    CandidateDecision criticChoiceAction = CandidateDecision::none;
     std::deque<juce::StringArray> criticQueue;
-    std::array<juce::String, 8> lastTasteEventIds;
+    std::array<std::array<juce::String, 4>, 8> lastTasteEventIds;
+    std::array<CandidateDecision, 8> lastDecisionActions {};
     AssetLibrary assetLibrary;
     int totalChoiceCount = 0;
     double tasteConfidence = 0.0;

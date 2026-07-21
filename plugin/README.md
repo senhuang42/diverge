@@ -56,9 +56,12 @@ For a host-free smoke test, open
    sources are retained there too, with append-only provenance events. Branch with **More like
    this**, recover a prior batch from **Recent**, or inspect the synchronized **Map** view.
 
-Creative state, the active run, selection, and decision sidecars are restored with the plugin
-instance. Rapid decisions are queued and learned locally. Closing only the editor preserves
-an active job; destroying the plugin instance cleanly cancels its child process.
+Keep, Pass, Favorite, Use in DAW, and Branch are independent candidate choices: recording one does
+not erase another. Choice changes are appended to each run's `decision-events.jsonl`; the current
+snapshot is stored in the versioned `decisions.json` sidecar. Older single-decision sidecars and
+saved plugin states migrate when restored. Creative state, the active run, and selection are also
+restored with the plugin instance. Rapid taste updates are queued and learned locally. Closing only
+the editor preserves an active job; destroying the plugin instance cleanly cancels its child process.
 
 For deterministic UI review without running models, set `DIVERGE_UI_FIXTURE` to `empty`,
 `ready`, `generating`, `results`, `recent`, `map`, `settings`, or `error` before opening the
