@@ -12,6 +12,7 @@ from pathlib import Path
 from diverge.critic import add_choice, train_critic
 from diverge.embed import Embedder
 from diverge.taste.events import CandidateRecord, TasteEvent, TasteEventStore
+from diverge.taste.feedback import append_comparison
 from diverge.taste.model import TasteModel, load_or_neutral
 from diverge.taste.profile import (
     edit_profile,
@@ -230,28 +231,15 @@ def record_pairwise_choice(
         raise RuntimeError("taste learning is disabled in the local profile")
     a_path = candidate_path(bundle, candidate_a)
     b_path = candidate_path(bundle, candidate_b)
-    config = bundle.manifest.get("config", {})
     record_a = CandidateRecord.from_embedding(a_path, embedder.embed_file(a_path))
     record_b = CandidateRecord.from_embedding(b_path, embedder.embed_file(b_path))
-    pair_key = frozenset((record_a.embedding_hash, record_b.embedding_hash))
     store = TasteEventStore(events_path)
-    for event in store.load():
-        if event.event_type == "pairwise" and event.candidate_a and event.candidate_b:
-            previous = frozenset(
-                (event.candidate_a.embedding_hash, event.candidate_b.embedding_hash)
-            )
-            if previous == pair_key:
-                return None
-    return store.append(
-        TasteEvent(
-            event_type="pairwise",
-            label=label,
-            candidate_a=record_a,
-            candidate_b=record_b,
-            batch_id=bundle.run_dir.name,
-            source_path=config.get("source"),
-            run_config={key: config.get(key) for key in ("transform", "spread", "drift", "locks")},
-        )
+    return append_comparison(
+        store,
+        record_a,
+        record_b,
+        label,
+        batch_id=bundle.run_dir.name,
     )
 
 
