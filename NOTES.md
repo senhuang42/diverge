@@ -24,6 +24,11 @@
   pinned to the newest mutually compatible Python 3.11 releases in `uv.lock`.
 - The real extra pins setuptools 80.9.0 because stable-audio-tools' transitive OpenAI CLIP
   dependency still imports `pkg_resources`, removed from newer setuptools releases.
+- The Stable Audio 3 Phase 0 adapter is pinned to upstream revision
+  `124e8a799f57a1f665495ecb72e547d0a62867f1`. Its official `0.1.0` package currently requires
+  NumPy 2.2+ and Transformers 5.8+, which conflict with the pinned Open Small stack, so evaluation
+  runs use the dedicated `.venv-sa3` documented in the README. This is evidence for a separate,
+  versioned helper process rather than a reason to destabilize the existing plugin environment.
 - MPS inference uses fp32 first for reliability. If the installed stable-audio-tools API
   differs, the adapter fails with an actionable version/API error instead of silently using
   another model.

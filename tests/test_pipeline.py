@@ -42,6 +42,7 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert (run_dir / "map.json").exists()
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(manifest["candidates"]) == 3
+    assert manifest["engine_capabilities"]["engine_id"] == "mock"
     assert manifest["selection"]["lock_threshold_requested"] == 0.55
     assert manifest["selection"]["lock_threshold_used"] == 0.55
     assert manifest["selection"]["relaxations"] == []

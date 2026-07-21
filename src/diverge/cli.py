@@ -11,7 +11,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 from .config import RunConfig  # noqa: E402
 from .critic import add_choice, choice_count, train_critic  # noqa: E402
 from .embed import Embedder  # noqa: E402
-from .generator import MockGenerator, StableAudioGenerator  # noqa: E402
+from .generator import MockGenerator, StableAudio3Generator, StableAudioGenerator  # noqa: E402
 from .session import run_session  # noqa: E402
 from .taste.events import (  # noqa: E402
     CandidateRecord,
@@ -63,6 +63,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--style-hint", default="")
     run.add_argument("--output-dir", type=Path, default=Path("runs"))
     run.add_argument("--models-dir", type=Path, default=Path("models"))
+    run.add_argument(
+        "--engine",
+        choices=("open-small", "sa3-small-music", "sa3-small-sfx"),
+        default="open-small",
+    )
+    run.add_argument("--device", choices=("cpu", "mps", "cuda"))
     run.add_argument("--fast", action="store_true")
     run.add_argument("--batch-size", type=int)
     run.add_argument("--mock", action="store_true")
@@ -325,13 +331,19 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"n": choice_count(args.choices)}))
         return 0
     config = _config(args)
-    generator = (
-        MockGenerator()
-        if args.mock
-        else StableAudioGenerator(
+    if args.mock:
+        generator = MockGenerator()
+    elif args.engine.startswith("sa3-"):
+        generator = StableAudio3Generator(
+            args.engine.removeprefix("sa3-"),
+            args.models_dir / "sa3",
+            device=args.device,
+            batch_size=config.generation_batch_size,
+        )
+    else:
+        generator = StableAudioGenerator(
             args.models_dir, fast=config.fast, batch_size=config.generation_batch_size
         )
-    )
     try:
         output = run_session(
             config,

@@ -27,6 +27,29 @@ uv run python scripts/download_models.py
 uv run diverge run --source data/loop_a.wav --ref data/ref_a.wav:1 --fast
 ```
 
+## Stable Audio 3 evaluation
+
+The Phase 0 adapter supports the official `small-music` and `small-sfx` audio-to-audio APIs and
+records their capabilities and licensing status in every manifest. It is an evaluation path, not
+the packaged 1.0 backend: the upstream package currently requires a newer NumPy/Transformers stack
+than Diverge's pinned Open Small environment, so keep it in a dedicated virtual environment.
+
+```bash
+uv venv .venv-sa3 --python 3.11
+uv pip install --python .venv-sa3/bin/python \
+  "git+https://github.com/Stability-AI/stable-audio-3.git@124e8a799f57a1f665495ecb72e547d0a62867f1" \
+  librosa joblib scikit-learn scipy umap-learn
+uv pip install --python .venv-sa3/bin/python --no-deps -e .
+HF_TOKEN=... .venv-sa3/bin/diverge run --engine sa3-small-music \
+  --source data/loop_a.wav --style-hint "electronic drum loop" --fast
+```
+
+Use `sa3-small-sfx` for one-shots, textures, and effects. Routing is deliberately explicit until
+listening tests prove automatic source classification. The adapter uses prompt conditioning and
+source audio-to-audio initialization; it does not claim that a Direction audio embedding directly
+conditions the model. Model download and raw-token setup remain evaluation-only shortcomings that
+the packaged helper/model manager must remove before release.
+
 Normal mode generates 32 candidates and selects eight. `--fast` uses four diffusion steps
 and a 16-candidate pool for iteration; pass `--n-oversample 32` to retain the full pool.
 

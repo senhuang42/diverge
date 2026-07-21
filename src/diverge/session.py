@@ -223,6 +223,9 @@ def run_session(
     manifest = {
         "config": config.to_dict(),
         "model_ids": {"embedder": embedder.model_id, "generator": type(generator).__name__},
+        "engine_capabilities": (
+            generator.capabilities.to_dict() if hasattr(generator, "capabilities") else None
+        ),
         "generator_settings": getattr(generator, "inference_settings", {}),
         "calibration": {
             "transform_noise": {

@@ -3,14 +3,41 @@ from __future__ import annotations
 import inspect
 import json
 import os
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 from scipy.signal import butter, sosfiltfilt
 
 TRANSFORM_NOISE_MIN = 0.10
 TRANSFORM_NOISE_MAX = 1.00
+
+
+@dataclass(frozen=True)
+class EngineCapabilities:
+    engine_id: str
+    model_id: str
+    source_classes: tuple[str, ...]
+    duration_s: tuple[float, float]
+    sample_rate: int
+    channels: tuple[int, ...]
+    audio_to_audio: bool
+    text_direction: bool
+    audio_direction: bool
+    inpainting: bool
+    continuation: bool
+    devices: tuple[str, ...]
+    license_name: str
+    license_url: str
+    redistribution_review_required: bool
+    latency_status: str = "unmeasured"
+    protocol_version: int = 1
+    upstream_revision: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 def transform_to_noise(transform: int) -> float:
@@ -47,6 +74,24 @@ class MockGenerator:
     """Deterministic, musical-ish filtered-noise variants for weight-free tests."""
 
     emits_progress = False
+    capabilities = EngineCapabilities(
+        engine_id="mock",
+        model_id="deterministic-filtered-noise",
+        source_classes=("test",),
+        duration_s=(0.0, 30.0),
+        sample_rate=44_100,
+        channels=(2,),
+        audio_to_audio=True,
+        text_direction=False,
+        audio_direction=False,
+        inpainting=False,
+        continuation=False,
+        devices=("cpu",),
+        license_name="repository test fixture",
+        license_url="",
+        redistribution_review_required=False,
+        latency_status="test-only",
+    )
 
     def generate(
         self,
@@ -84,6 +129,23 @@ class MockGenerator:
 class StableAudioGenerator:
     MODEL_ID = "stabilityai/stable-audio-open-small"
     emits_progress = True
+    capabilities = EngineCapabilities(
+        engine_id="stable-audio-open-small",
+        model_id=MODEL_ID,
+        source_classes=("music", "sound-effects"),
+        duration_s=(0.25, 47.0),
+        sample_rate=44_100,
+        channels=(2,),
+        audio_to_audio=True,
+        text_direction=True,
+        audio_direction=False,
+        inpainting=False,
+        continuation=False,
+        devices=("cpu", "mps"),
+        license_name="Stability AI Community License",
+        license_url="https://stability.ai/license",
+        redistribution_review_required=True,
+    )
 
     def __init__(
         self,
@@ -278,6 +340,133 @@ class StableAudioGenerator:
                 continue
             arrays = audio.detach().float().cpu().numpy()
             outputs.extend(arrays)
+            index += size
+            for completed in range(index - size + 1, index + 1):
+                self.progress(f"PROGRESS {completed}/{n}")
+        return outputs
+
+
+class StableAudio3Generator:
+    """Evaluation adapter for the official Stable Audio 3 Python API.
+
+    The upstream package currently has dependency requirements that conflict with Diverge's
+    production environment. This adapter therefore keeps the import optional and is intended for
+    the Phase 0 evaluation environment until the backend is packaged as a separate helper.
+    """
+
+    MODEL_IDS = {
+        "small-music": "stabilityai/stable-audio-3-small-music",
+        "small-sfx": "stabilityai/stable-audio-3-small-sfx",
+    }
+    emits_progress = True
+
+    def __init__(
+        self,
+        model_name: str,
+        models_dir: str | Path = "models/sa3",
+        *,
+        device: str | None = None,
+        batch_size: int = 8,
+        model_factory: Callable[..., Any] | None = None,
+    ) -> None:
+        if model_name not in self.MODEL_IDS:
+            raise ValueError(f"unsupported Stable Audio 3 model: {model_name}")
+        self.model_name = model_name
+        self.models_dir = Path(models_dir)
+        self.device = device
+        self.batch_size = max(1, batch_size)
+        self._model_factory = model_factory
+        self._model = None
+        self.progress = print
+        source_class = "music" if model_name == "small-music" else "sound-effects"
+        self.capabilities = EngineCapabilities(
+            engine_id=f"stable-audio-3-{model_name}",
+            model_id=self.MODEL_IDS[model_name],
+            source_classes=(source_class,),
+            duration_s=(0.25, 120.0),
+            sample_rate=44_100,
+            channels=(2,),
+            audio_to_audio=True,
+            text_direction=True,
+            audio_direction=False,
+            inpainting=True,
+            continuation=True,
+            devices=("cpu", "mps"),
+            license_name="Stability AI Community License",
+            license_url="https://stability.ai/license",
+            redistribution_review_required=True,
+            upstream_revision="124e8a799f57a1f665495ecb72e547d0a62867f1",
+        )
+        self.inference_settings = {
+            "steps": 8,
+            "cfg_scale": 1.0,
+            "batch_size": self.batch_size,
+            "model_name": model_name,
+            "device": device or "auto",
+        }
+
+    def _load(self):
+        if self._model is not None:
+            return self._model
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("HF_HOME", str(self.models_dir.resolve()))
+        factory = self._model_factory
+        if factory is None:
+            try:
+                from stable_audio_3 import StableAudioModel
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Stable Audio 3 is not installed in this evaluation environment; "
+                    "see the Phase 0 setup in README.md"
+                ) from exc
+            factory = StableAudioModel.from_pretrained
+        self._model = factory(self.model_name, device=self.device)
+        return self._model
+
+    def generate(
+        self,
+        source: np.ndarray,
+        sr: int,
+        style_embedding: np.ndarray,
+        style_text_hint: str,
+        transform: int,
+        duration_s: float,
+        seed: int,
+        n: int,
+    ) -> list[np.ndarray]:
+        del style_embedding
+        minimum, maximum = self.capabilities.duration_s
+        if not minimum <= duration_s <= maximum:
+            raise ValueError(
+                f"{self.model_name} duration must be between {minimum} and {maximum} seconds"
+            )
+        import torch
+
+        model = self._load()
+        samples = max(1, round(duration_s * sr))
+        init = torch.from_numpy(fit_source_duration(source, samples))
+        outputs: list[np.ndarray] = []
+        index = 0
+        while index < n:
+            size = min(self.batch_size, n - index)
+            audio = model.generate(
+                prompt=style_text_hint,
+                duration=duration_s,
+                steps=self.inference_settings["steps"],
+                cfg_scale=self.inference_settings["cfg_scale"],
+                batch_size=size,
+                seed=seed + index,
+                init_audio=(sr, init),
+                init_noise_level=float(transform_to_noise(transform)),
+                truncate_output_to_duration=True,
+            )
+            arrays = audio.detach().float().cpu().numpy()
+            if arrays.ndim != 3 or len(arrays) != size:
+                raise RuntimeError(
+                    f"Stable Audio 3 returned shape {arrays.shape}; "
+                    f"expected ({size}, channels, samples)"
+                )
+            outputs.extend(array.astype(np.float32, copy=False) for array in arrays)
             index += size
             for completed in range(index - size + 1, index + 1):
                 self.progress(f"PROGRESS {completed}/{n}")
