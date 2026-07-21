@@ -15,3 +15,5 @@ taste/reports/
 taste/events.jsonl
 taste/*.joblib
 taste/profile.json
+evaluation/reports/
+evaluation/comparison/

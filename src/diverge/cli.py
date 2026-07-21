@@ -31,6 +31,8 @@ from .taste.profile import (  # noqa: E402
     training_events,
 )
 
+ENGINE_CHOICES = ("open-small", "sa3-small-music", "sa3-small-sfx")
+
 
 def _reference(value: str) -> tuple[Path, float]:
     path, separator, weight = value.rpartition(":")
@@ -65,7 +67,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--models-dir", type=Path, default=Path("models"))
     run.add_argument(
         "--engine",
-        choices=("open-small", "sa3-small-music", "sa3-small-sfx"),
+        choices=ENGINE_CHOICES,
         default="open-small",
     )
     run.add_argument("--device", choices=("cpu", "mps", "cuda"))
@@ -77,6 +79,26 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--opinion", type=int, default=50)
     run.add_argument("--disable-taste-learning", action="store_true")
     run.add_argument("--disable-prompt-enrichment", action="store_true")
+
+    benchmark = commands.add_parser("benchmark")
+    benchmark.add_argument("--corpus", type=Path, required=True)
+    benchmark.add_argument("--engine", choices=("mock", *ENGINE_CHOICES), required=True)
+    benchmark.add_argument("--models-dir", type=Path, default=Path("models"))
+    benchmark.add_argument("--device", choices=("cpu", "mps", "cuda"))
+    benchmark.add_argument("--output-dir", type=Path, default=Path("evaluation/reports"))
+    benchmark.add_argument("--n-pool", type=int, default=16)
+    benchmark.add_argument("--n-return", type=int, default=8)
+    benchmark.add_argument("--batch-size", type=int, default=8)
+    benchmark.add_argument("--lock-threshold", type=float, default=0.55)
+    benchmark.add_argument("--transform", type=int, default=45)
+    benchmark.add_argument("--seed", type=int, default=0)
+    benchmark.add_argument("--fast", action="store_true")
+
+    compare_benchmarks = commands.add_parser("compare-benchmarks")
+    compare_benchmarks.add_argument("reports", nargs="+", type=Path)
+    compare_benchmarks.add_argument("--baseline", required=True)
+    compare_benchmarks.add_argument("--output-dir", type=Path, required=True)
+    compare_benchmarks.add_argument("--blind-seed", type=int, default=0)
 
     critic = commands.add_parser("critic")
     critic_commands = critic.add_subparsers(dest="critic_command", required=True)
@@ -178,8 +200,63 @@ def _config(args: argparse.Namespace) -> RunConfig:
     )
 
 
+def _engine_generator(
+    engine: str,
+    models_dir: Path,
+    *,
+    device: str | None,
+    batch_size: int,
+    fast: bool,
+):
+    if engine == "mock":
+        return MockGenerator()
+    if engine.startswith("sa3-"):
+        return StableAudio3Generator(
+            engine.removeprefix("sa3-"),
+            models_dir / "sa3",
+            device=device,
+            batch_size=batch_size,
+        )
+    return StableAudioGenerator(models_dir, fast=fast, batch_size=batch_size)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "compare-benchmarks":
+        from .benchmark import compare_benchmarks
+
+        comparison = compare_benchmarks(
+            args.reports,
+            args.baseline,
+            args.output_dir,
+            blind_seed=args.blind_seed,
+        )
+        print(comparison)
+        return 0
+    if args.command == "benchmark":
+        from .benchmark import load_corpus, run_benchmark
+
+        generator = _engine_generator(
+            args.engine,
+            args.models_dir,
+            device=args.device,
+            batch_size=args.batch_size,
+            fast=args.fast,
+        )
+        report = run_benchmark(
+            load_corpus(args.corpus),
+            args.engine,
+            generator,
+            Embedder(model_path=args.models_dir / "clap-htsat-unfused"),
+            args.output_dir,
+            n_pool=args.n_pool,
+            n_return=args.n_return,
+            lock_threshold=args.lock_threshold,
+            transform=args.transform,
+            seed=args.seed,
+        )
+        print(report)
+        return 0
     if args.command == "taste":
         store = TasteEventStore(args.events)
         if args.taste_command == "migrate":
@@ -331,19 +408,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"n": choice_count(args.choices)}))
         return 0
     config = _config(args)
-    if args.mock:
-        generator = MockGenerator()
-    elif args.engine.startswith("sa3-"):
-        generator = StableAudio3Generator(
-            args.engine.removeprefix("sa3-"),
-            args.models_dir / "sa3",
-            device=args.device,
-            batch_size=config.generation_batch_size,
-        )
-    else:
-        generator = StableAudioGenerator(
-            args.models_dir, fast=config.fast, batch_size=config.generation_batch_size
-        )
+    generator = _engine_generator(
+        "mock" if args.mock else args.engine,
+        args.models_dir,
+        device=args.device,
+        batch_size=config.generation_batch_size,
+        fast=config.fast,
+    )
     try:
         output = run_session(
             config,

@@ -50,6 +50,40 @@ source audio-to-audio initialization; it does not claim that a Direction audio e
 conditions the model. Model download and raw-token setup remain evaluation-only shortcomings that
 the packaged helper/model manager must remove before release.
 
+Run the same corpus once per engine to produce comparable, machine-readable evidence:
+
+```bash
+# Existing environment / baseline engine
+.venv/bin/diverge benchmark --corpus evaluation/corpus.example.json \
+  --engine open-small --fast
+
+# Dedicated Stable Audio 3 environment
+.venv-sa3/bin/diverge benchmark --corpus evaluation/corpus.example.json \
+  --engine sa3-small-music --fast
+```
+
+Each `evaluation/reports/<engine>/benchmark.json` includes cold-start first-playable and full-pool
+latency, peak process memory, exact-duration and audio quality failures, Groove/Melody/Timbre
+similarities, the fixed Preserve threshold, valid-set shortfalls, direction/source fit, duplicate
+rate, system identity, engine capabilities, and license-review status. The included corpus is only
+a weight-free smoke fixture; its report explicitly lists the missing target classes. A release
+decision requires a rights-cleared corpus covering all six target classes and blinded human quality
+judgments—the harness marks those judgments pending rather than manufacturing a quality verdict.
+
+After both engine runs, create neutralized A/B files and a four-question comparison report:
+
+```bash
+.venv/bin/diverge compare-benchmarks \
+  evaluation/reports/open-small/benchmark.json \
+  evaluation/reports/sa3-small-music/benchmark.json \
+  --baseline open-small --output-dir evaluation/comparison
+```
+
+Give the listener `blind_trials.json` and the copied files under `blind_audio/`; keep
+`blind_answer_key.json` hidden until judgments are complete. `comparison.json` can establish the
+measured latency and Preserve results, but intentionally keeps audio quality pending until those
+judgments are collected and redistribution pending until license counsel approves it.
+
 Normal mode generates 32 candidates and selects eight. `--fast` uses four diffusion steps
 and a 16-candidate pool for iteration; pass `--n-oversample 32` to retain the full pool.
 

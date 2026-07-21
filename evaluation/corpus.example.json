@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "description": "Weight-free smoke corpus only; missing classes are reported and this is not representative.",
+  "cases": [
+    {
+      "id": "drum-loop-smoke",
+      "source": "../data/loop_a.wav",
+      "source_class": "drums",
+      "prompt": "clean electronic drum loop",
+      "duration_s": 1.0,
+      "locks": ["groove"],
+      "loop": true,
+      "direction_audio": "../data/ref_a.wav"
+    },
+    {
+      "id": "texture-smoke",
+      "source": "../data/noise.wav",
+      "source_class": "textures",
+      "prompt": "evolving filtered noise texture",
+      "duration_s": 1.0,
+      "locks": ["timbre"],
+      "loop": false
+    }
+  ]
+}
