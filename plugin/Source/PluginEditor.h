@@ -155,8 +155,6 @@ private:
 
     juce::TextButton briefButton { "<  Brief" };
     juce::Label resultsTitle;
-    juce::TextButton gridButton { "Grid" };
-    juce::TextButton mapButton { "Map" };
     juce::TextButton keptButton { "Kept" };
     juce::TextButton recentButton { "Recent" };
     juce::TextButton newButton { "Create new" };

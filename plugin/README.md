@@ -56,8 +56,8 @@ For a host-free smoke test, open
 5. Drag a selected card or choose **Use in DAW**. Diverge first retains a content-addressed object
    and hands the DAW a stable named export under the user's application-support library. Branch
    sources are retained there too, with append-only provenance events. Branch with **More like
-   this**, recover a prior batch from **Recent**, or inspect the synchronized **Map** view. Recent
-   restores the saved source, reference, direction, Change, Preserve settings, and choices.
+   this** or recover a prior batch from **Recent**. Recent restores the saved source, reference,
+   direction, Change, Preserve settings, and choices.
 
 Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
 the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.
@@ -73,6 +73,7 @@ restored with the plugin instance. Rapid taste updates are queued and learned lo
 the editor preserves an active job; destroying the plugin instance cleanly cancels its child process.
 
 For deterministic UI review without running models, set `DIVERGE_UI_FIXTURE` to `empty`,
-`ready`, `generating`, `results`, `recent`, `map`, `settings`, or `error` before opening the
-Standalone build. Set `DIVERGE_UI_SNAPSHOT=/path/to/out.png` to write a PNG of the editor
-about a second after launch and quit, and `DIVERGE_REDUCED_MOTION=1` to disable animation.
+`ready`, `generating`, `results`, `recent`, `settings`, or `error` before opening the Standalone
+build. The experimental `map` fixture remains available for comparative testing. Set
+`DIVERGE_UI_SNAPSHOT=/path/to/out.png` to write a PNG about a second after launch and quit, and
+`DIVERGE_REDUCED_MOTION=1` to disable animation.

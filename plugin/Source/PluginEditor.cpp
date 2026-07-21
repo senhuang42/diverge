@@ -318,7 +318,12 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         }
         if (run.isDirectory()) loadRun(run);
         if (fixtureMode == "recent") setRecentVisible(true);
-        if (fixtureMode == "map") mapButton.triggerClick();
+        if (fixtureMode == "map")
+        {
+            showMap = true;
+            updateResultVisibility();
+            resized();
+        }
     }
     return true;
 }
@@ -352,7 +357,7 @@ void DivergeAudioProcessorEditor::configureUi()
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
              &changeSection, &changeSlider, &familiarLabel, &wildLabel,
              &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton, &cancelButton,
-             &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton,
+             &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &newButton,
              &tryMoreButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
              &branchButton, &dragButton, &tighterButton, &widerButton, &shortcutLabel,
@@ -444,27 +449,6 @@ void DivergeAudioProcessorEditor::configureUi()
     briefButton.onClick = [this] { setPrepareVisible(true); };
     resultsTitle.setText("8 VARIATIONS", juce::dontSendNotification);
     resultsTitle.setFont(DivergeTheme::display(15.0f));
-    gridButton.setClickingTogglesState(true);
-    mapButton.setClickingTogglesState(true);
-    gridButton.setToggleState(true, juce::dontSendNotification);
-    gridButton.onClick = [this]
-    {
-        showMap = false;
-        gridButton.setToggleState(true, juce::dontSendNotification);
-        mapButton.setToggleState(false, juce::dontSendNotification);
-        map.setVisible(false);
-        updateResultVisibility();
-        resized();
-    };
-    mapButton.onClick = [this]
-    {
-        showMap = true;
-        gridButton.setToggleState(false, juce::dontSendNotification);
-        mapButton.setToggleState(true, juce::dontSendNotification);
-        map.setVisible(true);
-        for (auto& card : candidateCards) card->setVisible(false);
-        resized();
-    };
     newButton.onClick = [this] { createNew(); };
     tryMoreButton.onClick = [this]
     {
@@ -903,9 +887,6 @@ void DivergeAudioProcessorEditor::resized()
         tryMoreButton.setBounds(toolbar.removeFromLeft(92));
         newButton.setBounds(toolbar.removeFromRight(110)); toolbar.removeFromRight(8);
         recentButton.setBounds(toolbar.removeFromRight(76)); toolbar.removeFromRight(6);
-        mapButton.setBounds(toolbar.removeFromRight(64)); toolbar.removeFromRight(6);
-        gridButton.setBounds(toolbar.removeFromRight(64));
-        toolbar.removeFromRight(6);
         keptButton.setBounds(toolbar.removeFromRight(68));
         area.removeFromTop(10);
 
@@ -982,7 +963,7 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     styleEditor.setVisible(visible && showDirectionText);
     cancelButton.setVisible(visible && generating);
     for (auto* component : std::initializer_list<juce::Component*> {
-             &briefButton, &resultsTitle, &gridButton, &mapButton, &keptButton, &recentButton, &newButton,
+             &briefButton, &resultsTitle, &keptButton, &recentButton, &newButton,
              &tryMoreButton, &map, &selectedTitle,
              &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton, &branchButton,
              &dragButton, &tighterButton, &widerButton, &shortcutLabel, &comparisonLabel,
