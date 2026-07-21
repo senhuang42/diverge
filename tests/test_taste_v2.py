@@ -12,7 +12,7 @@ from diverge.taste.events import (
     migrate_v1,
 )
 from diverge.taste.features import CandidateContext, FeatureTransform
-from diverge.taste.feedback import choose_comparison, comparison_key
+from diverge.taste.feedback import append_comparison, choose_comparison, comparison_key
 from diverge.taste.model import TasteModel
 from diverge.taste.profile import enrich_prompt, export_model, import_model
 from diverge.taste.synthetic import PROFILE_NAMES, all_profiles
@@ -140,6 +140,40 @@ def test_pairwise_ranker_and_active_pair_avoid_repeats() -> None:
     assert choose_comparison(contexts, hashes, model) == (0, 1)
     asked = {comparison_key(*hashes)}
     assert choose_comparison(contexts, hashes, model, asked) is None
+
+
+def test_append_comparison_rejects_duplicates_but_reset_starts_fresh(tmp_path: Path) -> None:
+    store = TasteEventStore(tmp_path / "events.jsonl")
+    a = CandidateRecord.from_embedding("a.wav", vector(0))
+    b = CandidateRecord.from_embedding("b.wav", vector(1))
+    first = append_comparison(store, a, b, "prefer_a", batch_id="first")
+    assert first is not None
+    assert append_comparison(store, b, a, "prefer_b", batch_id="duplicate") is None
+
+    store.append(
+        TasteEvent(
+            event_type="profile_edit",
+            label="keep",
+            strength=0,
+            metadata={"reset": True},
+        )
+    )
+    after_reset = append_comparison(store, b, a, "prefer_b", batch_id="second")
+    assert after_reset is not None
+    assert [item.batch_id for item in store.load() if item.event_type == "pairwise"] == [
+        "first",
+        "second",
+    ]
+
+
+def test_append_comparison_validates_label_and_distinct_audio(tmp_path: Path) -> None:
+    store = TasteEventStore(tmp_path / "events.jsonl")
+    a = CandidateRecord.from_embedding("a.wav", vector(0))
+    same_audio = CandidateRecord.from_embedding("copy.wav", vector(0))
+    with pytest.raises(ValueError, match="pairwise label"):
+        append_comparison(store, a, same_audio, "keep")
+    with pytest.raises(ValueError, match="identical"):
+        append_comparison(store, a, same_audio, "prefer_a")
 
 
 def test_multimode_positive_clusters_are_not_averaged() -> None:

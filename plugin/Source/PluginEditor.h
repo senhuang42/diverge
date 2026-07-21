@@ -72,6 +72,14 @@ private:
     void restoreRunDecisions(bool sameRun);
     void updateResultVisibility();
     void showToast(const juce::String&);
+    void updateTasteProfile(const juce::var& status);
+    void resetTasteProfile();
+    void exportTasteProfile();
+    void importTasteProfile();
+    void beginCalibration();
+    void chooseNextComparison();
+    void recordComparison(const juce::String& label);
+    void skipComparison();
 
     void runCriticCommand(const juce::StringArray& arguments);
     void trainCritic();
@@ -162,6 +170,11 @@ private:
     juce::TextButton tighterButton { "Tighter next" };
     juce::TextButton widerButton { "Wider next" };
     juce::Label shortcutLabel;
+    juce::Label comparisonLabel;
+    juce::TextButton comparisonAButton { "A is more me" };
+    juce::TextButton comparisonBButton { "B is more me" };
+    juce::TextButton comparisonNeitherButton { "Neither" };
+    juce::TextButton comparisonSkipButton { "Skip" };
     ToastOverlay toast;
     ScrimOverlay scrim;
 
@@ -178,6 +191,14 @@ private:
     StatusCard studioStatus;
     StatusCard learningStatus;
     StatusCard libraryStatus;
+    juce::Label opinionLabel;
+    juce::Slider opinionSlider;
+    juce::Label opinionValue;
+    juce::ToggleButton learningToggle { "Learn from explicit decisions" };
+    juce::TextButton calibrateButton { "Calibrate taste" };
+    juce::TextButton resetTasteButton { "Reset" };
+    juce::TextButton exportTasteButton { "Export" };
+    juce::TextButton importTasteButton { "Import" };
     juce::TextButton advancedButton { "Advanced diagnostics" };
     juce::Label pythonLabel;
     juce::TextEditor pythonEditor;
@@ -196,6 +217,14 @@ private:
     std::deque<juce::StringArray> criticQueue;
     std::array<juce::String, 8> lastTasteEventIds;
     int totalChoiceCount = 0;
+    double tasteConfidence = 0.0;
+    int positiveTasteModes = 0;
+    int negativeTasteModes = 0;
+    int comparisonA = 0;
+    int comparisonB = 0;
+    int comparisonsRemaining = 0;
+    bool comparisonVisible = false;
+    std::vector<std::pair<int, int>> comparisonsAsked;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DivergeAudioProcessorEditor)
 };

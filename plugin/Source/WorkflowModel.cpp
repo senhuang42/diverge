@@ -47,6 +47,11 @@ RunModel RunModel::load(const juce::File& runDirectory)
         result.source = juce::File(config.getProperty("source", {}).toString());
         result.parentRunId = config.getProperty("parent_run_id", {}).toString();
         result.parentCandidate = static_cast<int>(config.getProperty("parent_candidate", 0));
+        const auto taste = manifest->getProperty("taste");
+        result.tasteObservations = static_cast<int>(taste.getProperty("observations", 0));
+        result.tasteConfidence = static_cast<double>(taste.getProperty("confidence", 0.0));
+        result.opinion = static_cast<int>(taste.getProperty("opinion", 50));
+        result.tasteWarning = taste.getProperty("warning", {}).toString();
         if (const auto* references = config.getProperty("references", {}).getArray())
             for (const auto& referenceValue : *references)
                 if (const auto* reference = referenceValue.getArray(); reference != nullptr && !reference->isEmpty())
@@ -65,6 +70,16 @@ RunModel RunModel::load(const juce::File& runDirectory)
                     candidate.referenceFit = static_cast<double>(item->getProperty("ref_fit"));
                     candidate.novelty = static_cast<double>(item->getProperty("novelty"));
                     candidate.taste = static_cast<double>(item->getProperty("taste"));
+                    const auto tasteUncertainty = item->getProperty("taste_uncertainty");
+                    candidate.tasteUncertainty = tasteUncertainty.isVoid()
+                                                     ? 1.0
+                                                     : static_cast<double>(tasteUncertainty);
+                    const auto tasteEvidence = item->getProperty("taste_evidence");
+                    candidate.tasteEvidence = tasteEvidence.isVoid()
+                                                  ? 0.0
+                                                  : static_cast<double>(tasteEvidence);
+                    candidate.tasteMode = item->getProperty("taste_mode").toString();
+                    candidate.role = item->getProperty("role").toString();
                     candidate.utility = static_cast<double>(item->getProperty("utility"));
                     const auto locks = item->getProperty("locks");
                     candidate.groove = static_cast<double>(locks.getProperty("groove", 0.0));
@@ -97,6 +112,8 @@ void WorkflowModel::restoreFrom(const juce::ValueTree& state)
     audioSlots[2] = juce::File(state.getProperty("reference2", {}).toString());
     change = static_cast<int>(state.getProperty("change", 45));
     range = static_cast<int>(state.getProperty("range", 60));
+    opinion = static_cast<int>(state.getProperty("opinion", 50));
+    learningEnabled = static_cast<bool>(state.getProperty("learningEnabled", true));
     preserveGroove = static_cast<bool>(state.getProperty("preserveGroove", true));
     preserveMelody = static_cast<bool>(state.getProperty("preserveMelody", false));
     preserveTimbre = static_cast<bool>(state.getProperty("preserveTimbre", false));
@@ -118,6 +135,8 @@ void WorkflowModel::saveTo(juce::ValueTree& state) const
     state.setProperty("reference2", audioSlots[2].getFullPathName(), nullptr);
     state.setProperty("change", change, nullptr);
     state.setProperty("range", range, nullptr);
+    state.setProperty("opinion", opinion, nullptr);
+    state.setProperty("learningEnabled", learningEnabled, nullptr);
     state.setProperty("preserveGroove", preserveGroove, nullptr);
     state.setProperty("preserveMelody", preserveMelody, nullptr);
     state.setProperty("preserveTimbre", preserveTimbre, nullptr);

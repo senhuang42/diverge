@@ -4,8 +4,10 @@ from itertools import combinations
 
 import numpy as np
 
+from .events import CandidateRecord, TasteEvent, TasteEventStore
 from .features import CandidateContext
 from .model import TasteModel
+from .profile import training_events
 
 
 def comparison_key(a_hash: str, b_hash: str) -> tuple[str, str]:
@@ -42,3 +44,39 @@ def choose_comparison(
         if best is None or candidate > best:
             best = candidate
     return (-best[1], -best[2]) if best else None
+
+
+def append_comparison(
+    store: TasteEventStore,
+    candidate_a: CandidateRecord,
+    candidate_b: CandidateRecord,
+    label: str,
+    *,
+    batch_id: str | None = None,
+    strength: float = 1.0,
+) -> TasteEvent | None:
+    """Append one effective comparison, returning ``None`` for a repeated pair."""
+    if label not in {"prefer_a", "prefer_b", "neither"}:
+        raise ValueError("pairwise label must be prefer_a, prefer_b, or neither")
+    if candidate_a.embedding_hash == candidate_b.embedding_hash:
+        raise ValueError("cannot compare perceptually identical candidates")
+    key = comparison_key(candidate_a.embedding_hash, candidate_b.embedding_hash)
+    for event in training_events(store.path):
+        if event.event_type != "pairwise" or not event.candidate_a or not event.candidate_b:
+            continue
+        previous = comparison_key(
+            event.candidate_a.embedding_hash,
+            event.candidate_b.embedding_hash,
+        )
+        if previous == key:
+            return None
+    return store.append(
+        TasteEvent(
+            event_type="pairwise",
+            label=label,
+            candidate_a=candidate_a,
+            candidate_b=candidate_b,
+            batch_id=batch_id,
+            strength=strength,
+        )
+    )

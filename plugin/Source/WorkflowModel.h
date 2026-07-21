@@ -46,6 +46,10 @@ struct CandidateModel
     double timbre = 0.0;
     double novelty = 0.0;
     double taste = 0.0;
+    double tasteUncertainty = 1.0;
+    double tasteEvidence = 0.0;
+    juce::String tasteMode;
+    juce::String role;
     double utility = 0.0;
 };
 
@@ -58,6 +62,10 @@ struct RunModel
     std::vector<MapPoint> mapPoints;
     juce::String parentRunId;
     int parentCandidate = 0;
+    int tasteObservations = 0;
+    double tasteConfidence = 0.0;
+    int opinion = 50;
+    juce::String tasteWarning;
 
     bool isValid() const noexcept;
     const CandidateModel* candidate(int rank) const noexcept;
@@ -71,6 +79,8 @@ struct WorkflowModel
     std::array<juce::File, 3> audioSlots;
     int change = 45;
     int range = 60;
+    int opinion = 50;
+    bool learningEnabled = true;
     bool preserveGroove = true;
     bool preserveMelody = false;
     bool preserveTimbre = false;

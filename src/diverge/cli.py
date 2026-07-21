@@ -19,8 +19,17 @@ from .taste.events import (  # noqa: E402
     TasteEventStore,
     migrate_v1,
 )
+from .taste.feedback import append_comparison  # noqa: E402
 from .taste.model import TasteModel  # noqa: E402
-from .taste.profile import export_profile, profile_settings, training_events  # noqa: E402
+from .taste.profile import (  # noqa: E402
+    edit_profile,
+    export_model,
+    export_profile,
+    import_model,
+    profile_settings,
+    reset_profile,
+    training_events,
+)
 
 
 def _reference(value: str) -> tuple[Path, float]:
@@ -91,6 +100,14 @@ def _parser() -> argparse.ArgumentParser:
     taste_add.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
     taste_add.add_argument("--models-dir", type=Path, default=Path("models"))
     taste_add.add_argument("--batch-id")
+    compare = taste_commands.add_parser("compare")
+    compare.add_argument("candidate_a", type=Path)
+    compare.add_argument("candidate_b", type=Path)
+    compare.add_argument("label", choices=("prefer_a", "prefer_b", "neither"))
+    compare.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    compare.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
+    compare.add_argument("--models-dir", type=Path, default=Path("models"))
+    compare.add_argument("--batch-id")
     taste_undo = taste_commands.add_parser("undo")
     taste_undo.add_argument("event_id")
     taste_undo.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
@@ -105,6 +122,20 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
     export.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
     export.add_argument("--output", type=Path, default=Path("taste/profile.json"))
+    set_learning = taste_commands.add_parser("set-learning")
+    set_learning.add_argument("state", choices=("enabled", "disabled"))
+    set_learning.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    reset = taste_commands.add_parser("reset")
+    reset.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    reset.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
+    portable_export = taste_commands.add_parser("export-model")
+    portable_export.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    portable_export.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
+    portable_export.add_argument("--output", type=Path, default=Path("taste/profile.joblib"))
+    portable_import = taste_commands.add_parser("import-model")
+    portable_import.add_argument("input", type=Path)
+    portable_import.add_argument("--events", type=Path, default=Path("taste/events.jsonl"))
+    portable_import.add_argument("--model", type=Path, default=Path("taste/model.joblib"))
     return parser
 
 
@@ -148,6 +179,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.taste_command == "migrate":
             print(json.dumps(migrate_v1(args.choices, args.events), indent=2))
         elif args.taste_command == "add":
+            if not profile_settings(args.events).get("learning_enabled", True):
+                print(json.dumps({"recorded": False, "reason": "learning disabled"}, indent=2))
+                return 0
             embedding = Embedder(model_path=args.models_dir / "clap-htsat-unfused").embed_file(
                 args.wav
             )
@@ -162,7 +196,45 @@ def main(argv: list[str] | None = None) -> int:
             model = TasteModel()
             report = model.fit(training_events(args.events))
             model.save(args.model)
-            print(json.dumps({"event_id": event.event_id, **report.__dict__}, indent=2))
+            print(
+                json.dumps(
+                    {"recorded": True, "event_id": event.event_id, **report.__dict__}, indent=2
+                )
+            )
+        elif args.taste_command == "compare":
+            if not profile_settings(args.events).get("learning_enabled", True):
+                print(json.dumps({"recorded": False, "reason": "learning disabled"}, indent=2))
+                return 0
+            embedder = Embedder(model_path=args.models_dir / "clap-htsat-unfused")
+            records = [
+                CandidateRecord.from_embedding(path, embedding)
+                for path, embedding in zip(
+                    (args.candidate_a, args.candidate_b),
+                    embedder.embed_batch([args.candidate_a, args.candidate_b]),
+                    strict=True,
+                )
+            ]
+            event = append_comparison(
+                store,
+                records[0],
+                records[1],
+                args.label,
+                batch_id=args.batch_id,
+            )
+            model = TasteModel()
+            report = model.fit(training_events(args.events))
+            model.save(args.model)
+            print(
+                json.dumps(
+                    {
+                        "recorded": event is not None,
+                        "event_id": event.event_id if event else None,
+                        "reason": None if event else "comparison already recorded",
+                        **report.__dict__,
+                    },
+                    indent=2,
+                )
+            )
         elif args.taste_command == "undo":
             event = store.undo(args.event_id)
             model = TasteModel()
@@ -206,8 +278,39 @@ def main(argv: list[str] | None = None) -> int:
             from .taste.evaluate import evaluate_events
 
             print(json.dumps(evaluate_events(store.load(), args.reports_dir), indent=2))
+        elif args.taste_command == "export-profile":
+            print(json.dumps({"path": str(export_profile(args.model, args.events, args.output))}))
+        elif args.taste_command == "set-learning":
+            event = edit_profile(
+                args.events,
+                learning_enabled=args.state == "enabled",
+            )
+            print(
+                json.dumps(
+                    {"event_id": event.event_id, "learning_enabled": args.state == "enabled"}
+                )
+            )
+        elif args.taste_command == "reset":
+            event = reset_profile(args.events)
+            TasteModel().save(args.model)
+            print(json.dumps({"event_id": event.event_id, "reset": True}))
+        elif args.taste_command == "export-model":
+            print(json.dumps({"path": str(export_model(args.model, args.output))}))
         else:
-            print(export_profile(args.model, args.events, args.output))
+            path = import_model(args.input, args.model)
+            model = TasteModel.load(path)
+            print(
+                json.dumps(
+                    {
+                        "path": str(path),
+                        "observations": model.observation_count,
+                        "effective_evidence": model.effective_count,
+                        "confidence": 1 - math.exp(-model.effective_count / 8),
+                        "positive_modes": len(model.positive_modes),
+                        "negative_modes": len(model.negative_modes),
+                    }
+                )
+            )
         return 0
     if args.command == "critic":
         if args.critic_command == "add":

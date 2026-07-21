@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -325,6 +326,8 @@ void DivergeAudioProcessorEditor::configureUi()
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
              &branchButton, &dragButton, &tighterButton, &widerButton, &shortcutLabel,
+             &comparisonLabel, &comparisonAButton, &comparisonBButton,
+             &comparisonNeitherButton, &comparisonSkipButton,
              &keptButton, &recentButton, &scrim, &settingsPanel, &recentPanel, &toast })
         addAndMakeVisible(component);
     for (auto& card : candidateCards) addAndMakeVisible(card.get());
@@ -479,6 +482,17 @@ void DivergeAudioProcessorEditor::configureUi()
                              juce::Justification::centredRight);
     shortcutLabel.setFont(DivergeTheme::mono(10.0f));
     shortcutLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
+    configureSupportingLabel(comparisonLabel, "Which direction is more you?");
+    comparisonLabel.setFont(DivergeTheme::bodyBold(12.5f));
+    comparisonAButton.onClick = [this] { recordComparison("prefer_a"); };
+    comparisonBButton.onClick = [this] { recordComparison("prefer_b"); };
+    comparisonNeitherButton.onClick = [this] { recordComparison("neither"); };
+    comparisonSkipButton.onClick = [this] { skipComparison(); };
+    comparisonLabel.setVisible(false);
+    comparisonAButton.setVisible(false);
+    comparisonBButton.setVisible(false);
+    comparisonNeitherButton.setVisible(false);
+    comparisonSkipButton.setVisible(false);
 
     recentPanel.setVisible(false);
     recentPanel.addAndMakeVisible(recentTitle);
@@ -506,7 +520,9 @@ void DivergeAudioProcessorEditor::configureUi()
     settingsPanel.setVisible(false);
     for (auto* component : std::initializer_list<juce::Component*> {
              &settingsTitle, &settingsSubtitle, &settingsClose, &studioStatus, &learningStatus,
-             &libraryStatus, &advancedButton,
+             &libraryStatus, &opinionLabel, &opinionSlider, &opinionValue, &learningToggle,
+             &calibrateButton, &resetTasteButton, &exportTasteButton, &importTasteButton,
+             &advancedButton,
              &pythonLabel, &pythonEditor, &modelsLabel, &modelsEditor, &libraryLabel, &libraryEditor,
              &choicesLabel, &choicesEditor, &outputLabel, &outputEditor })
         settingsPanel.addAndMakeVisible(component);
@@ -521,6 +537,32 @@ void DivergeAudioProcessorEditor::configureUi()
                        StatusCard::State::neutral);
     libraryStatus.set("Library", "Library avoidance appears only after an index is connected.",
                       StatusCard::State::neutral);
+    opinionLabel.setText("Opinion", juce::dontSendNotification);
+    opinionLabel.setFont(DivergeTheme::bodyBold(12.5f));
+    opinionLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
+    opinionSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    opinionSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    opinionSlider.setRange(0.0, 100.0, 1.0);
+    opinionSlider.setValue(50.0);
+    opinionSlider.onValueChange = [this]
+    {
+        opinionValue.setText(juce::String(static_cast<int>(opinionSlider.getValue())) + "%",
+                             juce::dontSendNotification);
+        workflow.opinion = static_cast<int>(opinionSlider.getValue());
+    };
+    configureSupportingLabel(opinionValue, "50%", juce::Justification::centredRight);
+    learningToggle.setToggleState(true, juce::dontSendNotification);
+    learningToggle.onClick = [this]
+    {
+        workflow.learningEnabled = learningToggle.getToggleState();
+        runCriticCommand({ "set-learning", workflow.learningEnabled ? "enabled" : "disabled",
+                           "--events", tasteEventsFile().getFullPathName() });
+        saveSettings();
+    };
+    calibrateButton.onClick = [this] { beginCalibration(); };
+    resetTasteButton.onClick = [this] { resetTasteProfile(); };
+    exportTasteButton.onClick = [this] { exportTasteProfile(); };
+    importTasteButton.onClick = [this] { importTasteProfile(); };
     advancedButton.onClick = [this] { setAdvancedVisible(!showAdvanced); };
     pythonLabel.setText("Engine", juce::dontSendNotification);
     modelsLabel.setText("Models", juce::dontSendNotification);
@@ -720,7 +762,22 @@ void DivergeAudioProcessorEditor::resized()
         studioStatus.setBounds(cards.removeFromLeft(statusWidth)); cards.removeFromLeft(12);
         learningStatus.setBounds(cards.removeFromLeft(statusWidth)); cards.removeFromLeft(12);
         libraryStatus.setBounds(cards);
-        settings.removeFromTop(22);
+        settings.removeFromTop(16);
+        auto opinion = settings.removeFromTop(34);
+        opinionLabel.setBounds(opinion.removeFromLeft(72));
+        opinionValue.setBounds(opinion.removeFromRight(54));
+        opinionSlider.setBounds(opinion);
+        auto profileActions = settings.removeFromTop(38);
+        learningToggle.setBounds(profileActions.removeFromLeft(230));
+        profileActions.removeFromLeft(10);
+        calibrateButton.setBounds(profileActions.removeFromLeft(128));
+        profileActions.removeFromLeft(8);
+        resetTasteButton.setBounds(profileActions.removeFromLeft(72));
+        profileActions.removeFromLeft(8);
+        exportTasteButton.setBounds(profileActions.removeFromLeft(72));
+        profileActions.removeFromLeft(8);
+        importTasteButton.setBounds(profileActions.removeFromLeft(72));
+        settings.removeFromTop(12);
         advancedButton.setBounds(settings.removeFromTop(40).removeFromLeft(190));
         settings.removeFromTop(14);
         auto place = [&settings](juce::Label& label, juce::TextEditor& editor)
@@ -797,7 +854,7 @@ void DivergeAudioProcessorEditor::resized()
         keptButton.setBounds(toolbar.removeFromRight(68));
         area.removeFromTop(10);
 
-        auto selected = area.removeFromBottom(154);
+        auto selected = area.removeFromBottom(comparisonVisible ? 196 : 154);
         area.removeFromBottom(10);
         map.setBounds(area);
         if (!showMap)
@@ -834,6 +891,15 @@ void DivergeAudioProcessorEditor::resized()
         tighterButton.setBounds(secondary.removeFromLeft(104)); secondary.removeFromLeft(6);
         widerButton.setBounds(secondary.removeFromLeft(104));
         shortcutLabel.setBounds(secondary);
+        if (comparisonVisible)
+        {
+            auto comparison = selected.removeFromTop(40);
+            comparisonLabel.setBounds(comparison.removeFromLeft(260));
+            comparisonAButton.setBounds(comparison.removeFromLeft(112)); comparison.removeFromLeft(6);
+            comparisonBButton.setBounds(comparison.removeFromLeft(112)); comparison.removeFromLeft(6);
+            comparisonNeitherButton.setBounds(comparison.removeFromLeft(82)); comparison.removeFromLeft(6);
+            comparisonSkipButton.setBounds(comparison.removeFromLeft(66));
+        }
     }
 }
 
@@ -862,8 +928,15 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     for (auto* component : std::initializer_list<juce::Component*> {
              &briefButton, &resultsTitle, &gridButton, &mapButton, &keptButton, &recentButton, &newButton, &map, &selectedTitle,
              &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton, &branchButton,
-             &dragButton, &tighterButton, &widerButton, &shortcutLabel })
+             &dragButton, &tighterButton, &widerButton, &shortcutLabel, &comparisonLabel,
+             &comparisonAButton, &comparisonBButton, &comparisonNeitherButton,
+             &comparisonSkipButton })
         component->setVisible(!visible);
+    comparisonLabel.setVisible(!visible && comparisonVisible);
+    comparisonAButton.setVisible(!visible && comparisonVisible);
+    comparisonBButton.setVisible(!visible && comparisonVisible);
+    comparisonNeitherButton.setVisible(!visible && comparisonVisible);
+    comparisonSkipButton.setVisible(!visible && comparisonVisible);
     for (auto& card : candidateCards) card->setVisible(!visible && !showMap);
     if (!visible) updateResultVisibility();
     map.setVisible(!visible && showMap);
@@ -876,7 +949,13 @@ void DivergeAudioProcessorEditor::setSettingsVisible(bool visible)
     if (settingsPanel.isVisible() != visible) beginViewTransition();
     if (visible) closeRecentImmediately();
     settingsPanel.setVisible(visible);
-    if (visible) settingsPanel.toFront(false);
+    if (visible)
+    {
+        opinionSlider.setValue(workflow.opinion, juce::dontSendNotification);
+        opinionValue.setText(juce::String(workflow.opinion) + "%", juce::dontSendNotification);
+        learningToggle.setToggleState(workflow.learningEnabled, juce::dontSendNotification);
+        settingsPanel.toFront(false);
+    }
     resized();
     repaint();
 }
@@ -1058,7 +1137,8 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("choices_path", choicesFile().getFullPathName());
     object->setProperty("taste_events_path", tasteEventsFile().getFullPathName());
     object->setProperty("taste_model_path", tasteModelFile().getFullPathName());
-    object->setProperty("opinion", 50);
+    object->setProperty("opinion", static_cast<int>(opinionSlider.getValue()));
+    object->setProperty("taste_learning_enabled", learningToggle.getToggleState());
     object->setProperty("style_text_hint", styleHint());
     object->setProperty("lock_threshold", 0.55);
     object->setProperty("fast", true);
@@ -1132,12 +1212,155 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     }
     workflow.activeRunId = run.getFileName();
     workflow.view = WorkflowViewState::results;
+    totalChoiceCount = loadedRun.tasteObservations;
+    tasteConfidence = loadedRun.tasteConfidence;
+    opinionSlider.setValue(loadedRun.opinion, juce::dontSendNotification);
+    opinionValue.setText(juce::String(loadedRun.opinion) + "%", juce::dontSendNotification);
+    comparisonsAsked.clear();
+    comparisonsRemaining = 1;
+    chooseNextComparison();
     const auto restore = workflow.selectedCandidate >= 1 ? workflow.selectedCandidate : 1;
     setPrepareVisible(false);
     selectCandidate(restore, false);
     if (isShowing()) candidateCards[static_cast<size_t>(restore - 1)]->grabKeyboardFocus();
     showToast("Eight variations ready - click one to hear it");
     saveSettings();
+}
+
+void DivergeAudioProcessorEditor::updateTasteProfile(const juce::var& status)
+{
+    totalChoiceCount = static_cast<int>(status.getProperty(
+        "observations", status.getProperty("events", totalChoiceCount)));
+    tasteConfidence = static_cast<double>(status.getProperty("confidence", tasteConfidence));
+    positiveTasteModes = static_cast<int>(status.getProperty("positive_modes", positiveTasteModes));
+    negativeTasteModes = static_cast<int>(status.getProperty("negative_modes", negativeTasteModes));
+    const auto confidencePercent = static_cast<int>(std::round(tasteConfidence * 100.0));
+    const auto modes = positiveTasteModes + negativeTasteModes;
+    learningStatus.set(
+        "Preferences",
+        totalChoiceCount > 0
+            ? juce::String(totalChoiceCount) + " events  /  " + juce::String(confidencePercent)
+                  + "% confidence  /  " + juce::String(modes) + " modes"
+            : "Ready to learn from explicit Keeps, Passes, and Favorites.",
+        totalChoiceCount > 0 ? StatusCard::State::ok : StatusCard::State::neutral);
+}
+
+void DivergeAudioProcessorEditor::resetTasteProfile()
+{
+    runCriticCommand({ "reset", "--events", tasteEventsFile().getFullPathName(),
+                       "--model", tasteModelFile().getFullPathName() });
+    comparisonsAsked.clear();
+    showToast("Taste reset recorded - event history remains recoverable");
+}
+
+void DivergeAudioProcessorEditor::exportTasteProfile()
+{
+    const auto output = tasteModelFile().getSiblingFile("profile.joblib");
+    runCriticCommand({ "export-model", "--events", tasteEventsFile().getFullPathName(),
+                       "--model", tasteModelFile().getFullPathName(), "--output",
+                       output.getFullPathName() });
+    showToast("Portable profile exported beside your taste model");
+}
+
+void DivergeAudioProcessorEditor::importTasteProfile()
+{
+    chooser = std::make_unique<juce::FileChooser>("Import a Diverge taste profile", juce::File {}, "*.joblib");
+    juce::Component::SafePointer<DivergeAudioProcessorEditor> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::openMode
+                             | juce::FileBrowserComponent::canSelectFiles,
+                         [safeThis](const juce::FileChooser& selected)
+                         {
+                             if (safeThis == nullptr || !selected.getResult().existsAsFile()) return;
+                             safeThis->runCriticCommand(
+                                 { "import-model", selected.getResult().getFullPathName(), "--events",
+                                   safeThis->tasteEventsFile().getFullPathName(), "--model",
+                                   safeThis->tasteModelFile().getFullPathName() });
+                             safeThis->showToast("Taste profile imported and validated");
+                         });
+}
+
+void DivergeAudioProcessorEditor::beginCalibration()
+{
+    if (!loadedRun.isValid())
+    {
+        showToast("Create a batch before starting calibration");
+        return;
+    }
+    comparisonsAsked.clear();
+    comparisonsRemaining = 6;
+    setSettingsVisible(false);
+    setPrepareVisible(false);
+    chooseNextComparison();
+    showToast("Six-comparison taste calibration started");
+}
+
+void DivergeAudioProcessorEditor::chooseNextComparison()
+{
+    comparisonA = 0;
+    comparisonB = 0;
+    double bestScore = -1.0;
+    for (const auto& a : loadedRun.candidates)
+        for (const auto& b : loadedRun.candidates)
+        {
+            if (a.rank >= b.rank) continue;
+            const auto asked = std::find(comparisonsAsked.begin(), comparisonsAsked.end(),
+                                         std::pair<int, int> { a.rank, b.rank });
+            if (asked != comparisonsAsked.end()) continue;
+            const auto boundary = 1.0 - juce::jmin(1.0, std::abs(a.taste - b.taste) * 2.0);
+            const auto uncertainty = (a.tasteUncertainty + b.tasteUncertainty) * 0.5;
+            const auto differentMode = a.tasteMode.isNotEmpty() && b.tasteMode.isNotEmpty()
+                                       && a.tasteMode != b.tasteMode ? 0.15 : 0.0;
+            const auto score = 0.55 * uncertainty + 0.30 * boundary + differentMode;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                comparisonA = a.rank;
+                comparisonB = b.rank;
+            }
+        }
+    comparisonVisible = comparisonsRemaining > 0 && comparisonA > 0 && comparisonB > 0;
+    if (comparisonVisible)
+    {
+        const auto prefix = comparisonsRemaining > 1
+                                ? "Calibration " + juce::String(7 - comparisonsRemaining) + "/6  /  "
+                                : juce::String();
+        comparisonLabel.setText(prefix + "Which is more you: "
+                                    + juce::String(comparisonA).paddedLeft('0', 2) + " or "
+                                    + juce::String(comparisonB).paddedLeft('0', 2) + "?",
+                                juce::dontSendNotification);
+        comparisonAButton.setButtonText("A  " + juce::String(comparisonA).paddedLeft('0', 2));
+        comparisonBButton.setButtonText("B  " + juce::String(comparisonB).paddedLeft('0', 2));
+    }
+    for (auto* component : { static_cast<juce::Component*>(&comparisonLabel),
+                             static_cast<juce::Component*>(&comparisonAButton),
+                             static_cast<juce::Component*>(&comparisonBButton),
+                             static_cast<juce::Component*>(&comparisonNeitherButton),
+                             static_cast<juce::Component*>(&comparisonSkipButton) })
+        component->setVisible(!showPrepare && comparisonVisible);
+    resized();
+}
+
+void DivergeAudioProcessorEditor::recordComparison(const juce::String& label)
+{
+    const auto* a = loadedRun.candidate(comparisonA);
+    const auto* b = loadedRun.candidate(comparisonB);
+    if (!comparisonVisible || a == nullptr || b == nullptr) return;
+    comparisonsAsked.emplace_back(comparisonA, comparisonB);
+    runCriticCommand({ "compare", a->file.getFullPathName(), b->file.getFullPathName(), label,
+                       "--events", tasteEventsFile().getFullPathName(), "--model",
+                       tasteModelFile().getFullPathName(), "--models-dir", modelsEditor.getText().trim(),
+                       "--batch-id", currentRun.getFileName() });
+    --comparisonsRemaining;
+    chooseNextComparison();
+    showToast("Comparison recorded - taste confidence will update locally");
+}
+
+void DivergeAudioProcessorEditor::skipComparison()
+{
+    if (!comparisonVisible) return;
+    comparisonsAsked.emplace_back(comparisonA, comparisonB);
+    --comparisonsRemaining;
+    chooseNextComparison();
 }
 
 void DivergeAudioProcessorEditor::selectCandidate(int rank, bool playImmediately)
@@ -1457,26 +1680,48 @@ void DivergeAudioProcessorEditor::pollCriticProcess()
     decisionProcess.reset();
     const auto jsonStart = output.indexOfChar('{');
     const auto parsed = juce::JSON::parse(jsonStart >= 0 ? output.substring(jsonStart) : output);
-    if (criticAction == "add")
+    if (!parsed.isObject())
     {
-        totalChoiceCount = static_cast<int>(parsed.getProperty("observations", totalChoiceCount));
-        const auto eventId = parsed.getProperty("event_id", "").toString();
-        for (int index = 0; index < 8; ++index)
-            if (candidateCards[static_cast<size_t>(index)]->file().getFullPathName() == criticCandidatePath)
-                lastTasteEventIds[static_cast<size_t>(index)] = eventId;
+        learningStatus.set("Preferences", "Local preference update failed - check Advanced diagnostics.",
+                           StatusCard::State::attention);
+        showToast(friendlyError(output.trim()));
+    }
+    else if (criticAction == "add")
+    {
+        if (static_cast<bool>(parsed.getProperty("recorded", true)))
+        {
+            const auto eventId = parsed.getProperty("event_id", "").toString();
+            for (int index = 0; index < 8; ++index)
+                if (candidateCards[static_cast<size_t>(index)]->file().getFullPathName() == criticCandidatePath)
+                    lastTasteEventIds[static_cast<size_t>(index)] = eventId;
+        }
+        updateTasteProfile(parsed);
     }
     else if (criticAction == "undo")
     {
         for (auto& eventId : lastTasteEventIds)
             if (eventId == criticCandidatePath) eventId.clear();
+        updateTasteProfile(parsed);
     }
-    else if (criticAction == "train")
-        totalChoiceCount = static_cast<int>(parsed.getProperty("observations", 0));
-    learningStatus.set("Preferences",
-                       totalChoiceCount > 0
-                           ? "Learning locally from " + juce::String(totalChoiceCount) + " choices you have made."
-                           : "Ready to learn from your Keeps and Passes.",
-                       totalChoiceCount > 0 ? StatusCard::State::ok : StatusCard::State::neutral);
+    else if (criticAction == "train" || criticAction == "status" || criticAction == "compare")
+        updateTasteProfile(parsed);
+    else if (criticAction == "reset")
+    {
+        totalChoiceCount = 0;
+        tasteConfidence = 0.0;
+        positiveTasteModes = 0;
+        negativeTasteModes = 0;
+        updateTasteProfile(parsed);
+    }
+    else if (criticAction == "set-learning")
+    {
+        workflow.learningEnabled = static_cast<bool>(parsed.getProperty(
+            "learning_enabled", workflow.learningEnabled));
+        learningToggle.setToggleState(workflow.learningEnabled, juce::dontSendNotification);
+        saveSettings();
+    }
+    else if (criticAction == "import-model")
+        updateTasteProfile(parsed);
     if (!criticQueue.empty())
     {
         const auto next = criticQueue.front();
@@ -1501,6 +1746,9 @@ void DivergeAudioProcessorEditor::restoreSettings()
     outputEditor.setText(state.getProperty("output", project.getChildFile("runs").getFullPathName()).toString());
     audioSlots = workflow.audioSlots;
     changeSlider.setValue(workflow.change);
+    opinionSlider.setValue(workflow.opinion, juce::dontSendNotification);
+    opinionValue.setText(juce::String(workflow.opinion) + "%", juce::dontSendNotification);
+    learningToggle.setToggleState(workflow.learningEnabled, juce::dontSendNotification);
     grooveLock.setToggleState(workflow.preserveGroove, juce::dontSendNotification);
     melodyLock.setToggleState(workflow.preserveMelody, juce::dontSendNotification);
     timbreLock.setToggleState(workflow.preserveTimbre, juce::dontSendNotification);
@@ -1532,6 +1780,8 @@ void DivergeAudioProcessorEditor::saveSettings()
     state.setProperty("output", outputEditor.getText().trim(), nullptr);
     workflow.audioSlots = audioSlots;
     workflow.change = static_cast<int>(changeSlider.getValue());
+    workflow.opinion = static_cast<int>(opinionSlider.getValue());
+    workflow.learningEnabled = learningToggle.getToggleState();
     workflow.preserveGroove = grooveLock.getToggleState();
     workflow.preserveMelody = melodyLock.getToggleState();
     workflow.preserveTimbre = timbreLock.getToggleState();
