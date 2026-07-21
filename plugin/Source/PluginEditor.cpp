@@ -1443,8 +1443,16 @@ void DivergeAudioProcessorEditor::dragSelected()
     if (selectedCandidate <= 0) return;
     const auto file = candidateCards[static_cast<size_t>(selectedCandidate - 1)]->file();
     if (!file.existsAsFile()) return;
+    const auto asset = assetLibrary.retain(file, currentRun.getFileName(), selectedCandidate,
+                                           "export", true);
+    if (!asset.isValid())
+    {
+        showToast("Could not create a durable DAW asset");
+        return;
+    }
     recordDecision(CandidateDecision::exported);
-    juce::DragAndDropContainer::performExternalDragDropOfFiles({ file.getFullPathName() }, false, this);
+    juce::DragAndDropContainer::performExternalDragDropOfFiles(
+        { asset.usageFile.getFullPathName() }, false, this);
 }
 
 void DivergeAudioProcessorEditor::branchFromSelected()
@@ -1452,9 +1460,16 @@ void DivergeAudioProcessorEditor::branchFromSelected()
     if (selectedCandidate <= 0) return;
     const auto file = candidateCards[static_cast<size_t>(selectedCandidate - 1)]->file();
     if (!file.existsAsFile()) return;
+    const auto asset = assetLibrary.retain(file, currentRun.getFileName(), selectedCandidate,
+                                           "branch", false);
+    if (!asset.isValid())
+    {
+        showToast("Could not protect the branch source");
+        return;
+    }
     audioProcessor.state().setProperty("pendingParentRun", currentRun.getFileName(), nullptr);
     audioProcessor.state().setProperty("pendingParentCandidate", selectedCandidate, nullptr);
-    setAudioSlot(0, file);
+    setAudioSlot(0, asset.object);
     setPrepareVisible(true);
     showToast("Variation " + juce::String(selectedCandidate).paddedLeft('0', 2) + " is now your source");
 }

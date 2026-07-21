@@ -30,6 +30,8 @@ juce_add_plugin(DivergePlugin
 )
 
 target_sources(DivergePlugin PRIVATE
+  Source/AssetLibrary.cpp
+  Source/AssetLibrary.h
   Source/DesignSystem.cpp
   Source/DesignSystem.h
   Source/JobRunner.cpp
@@ -54,6 +56,7 @@ target_compile_definitions(DivergePlugin PUBLIC
 
 target_link_libraries(DivergePlugin PRIVATE
   juce::juce_audio_utils
+  juce::juce_cryptography
   juce::juce_dsp
   PUBLIC
   juce::juce_recommended_config_flags
@@ -97,4 +100,21 @@ if(BUILD_TESTING)
     juce::juce_recommended_warning_flags
   )
   add_test(NAME DivergePreviewAudioContract COMMAND DivergePreviewAudioTests)
+
+  add_executable(DivergeAssetLibraryTests
+    Tests/AssetLibraryTests.cpp
+    Source/AssetLibrary.cpp
+    Source/AssetLibrary.h
+  )
+  target_include_directories(DivergeAssetLibraryTests PRIVATE Source)
+  target_compile_definitions(DivergeAssetLibraryTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+  )
+  target_link_libraries(DivergeAssetLibraryTests PRIVATE
+    juce::juce_cryptography
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+  )
+  add_test(NAME DivergeAssetLibraryContract COMMAND DivergeAssetLibraryTests)
 endif()

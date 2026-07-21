@@ -2,6 +2,7 @@
 
 #include "DesignSystem.h"
 #include "PluginProcessor.h"
+#include "AssetLibrary.h"
 #include <deque>
 
 class MapComponent final : public juce::Component
@@ -216,6 +217,7 @@ private:
     juce::String criticCandidatePath;
     std::deque<juce::StringArray> criticQueue;
     std::array<juce::String, 8> lastTasteEventIds;
+    AssetLibrary assetLibrary;
     int totalChoiceCount = 0;
     double tasteConfidence = 0.0;
     int positiveTasteModes = 0;

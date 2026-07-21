@@ -51,8 +51,10 @@ For a host-free smoke test, open
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical
    position and replaces rather than layers over live input.
-5. Drag a selected card or choose **Use in DAW**. Branch with **More like this**, recover a
-   prior batch from **Recent**, or inspect the synchronized **Map** view.
+5. Drag a selected card or choose **Use in DAW**. Diverge first retains a content-addressed object
+   and hands the DAW a stable named export under the user's application-support library. Branch
+   sources are retained there too, with append-only provenance events. Branch with **More like
+   this**, recover a prior batch from **Recent**, or inspect the synchronized **Map** view.
 
 Creative state, the active run, selection, and decision sidecars are restored with the plugin
 instance. Rapid decisions are queued and learned locally. Closing only the editor preserves
