@@ -18,7 +18,7 @@ class RunConfig:
     locks: set[str] = field(default_factory=lambda: {"groove"})
     n_return: int = 8
     n_oversample: int = 32
-    duration_s: float = 8.0
+    duration_s: float | None = None
     seed: int = 0
     library_index: Path | None = None
     critic_model: Path | None = None
@@ -54,8 +54,8 @@ class RunConfig:
             raise ValueError("n_oversample must be >= n_return >= 1")
         if self.generation_batch_size < 1:
             raise ValueError("generation_batch_size must be >= 1")
-        if not 0 < self.duration_s <= 30:
-            raise ValueError("duration_s must be in (0, 30]")
+        if self.duration_s is not None and not 0 < self.duration_s <= 30:
+            raise ValueError("duration_s must be in (0, 30] when provided")
         if not 0 <= self.lock_threshold <= 1:
             raise ValueError("lock_threshold must be in 0..1")
         if not 0 <= self.self_novelty_weight <= 1:

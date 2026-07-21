@@ -96,7 +96,10 @@ uv run python -m review.app runs/<timestamp>
 
 The JUCE plugin build and host workflow are documented in [plugin/README.md](plugin/README.md).
 
-All audio is loaded and written as 44.1 kHz stereo float WAV. Outputs live under `runs/`.
+Pipeline audio is analyzed and written as 44.1 kHz stereo float WAV. Output duration defaults to
+the source's exact duration; an explicit `--duration` is recorded as cropped or loop-filled in the
+manifest. Silence, clipping, invalid layouts, severe discontinuities, and wrong-length candidates
+are rejected before Preserve selection. Outputs live under `runs/`.
 
 ## Local taste profile
 

@@ -44,6 +44,7 @@ def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
     )
     assert fast.n_oversample == 16
     assert overridden.n_oversample == 24
+    assert fast.duration_s is None
 
 
 def test_audio_is_resampled_stereo_float(tmp_path: Path) -> None:

@@ -1136,7 +1136,6 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("locks", locks);
     object->setProperty("n_return", 8);
     object->setProperty("n_oversample", 16);
-    object->setProperty("duration_s", 8.0);
     object->setProperty("seed", juce::Random::getSystemRandom().nextInt());
     object->setProperty("library_index", libraryEditor.getText().trim());
     object->setProperty("critic_model", juce::File(modelsEditor.getText()).getChildFile("critic.joblib").getFullPathName());

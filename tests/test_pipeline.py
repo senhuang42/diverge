@@ -79,3 +79,42 @@ def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> No
     )
     run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
     assert len(list(run_dir.glob("cand_*.wav"))) == 2
+
+
+def test_source_duration_defaults_exactly_and_quality_failures_are_rejected(tmp_path: Path) -> None:
+    class MixedQualityGenerator:
+        emits_progress = False
+
+        def generate(
+            self, source, sr, style_embedding, style_text_hint, transform, duration_s, seed, n
+        ):
+            del style_embedding, style_text_hint, transform, seed
+            samples = round(duration_s * sr)
+            valid = source[:, :samples].copy()
+            return [valid, np.zeros_like(valid), valid[:, :-1]][:n]
+
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[],
+        n_return=3,
+        n_oversample=3,
+        duration_s=None,
+        output_dir=tmp_path / "runs",
+        locks=set(),
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+    run_dir = run_session(config, MixedQualityGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest["audio_contract"]["source_fit"] == "exact"
+    assert manifest["audio_contract"]["requested_duration_s"] is None
+    assert manifest["selection"]["quality_rejected_count"] == 2
+    assert manifest["selection"]["quality_failure_counts"] == {
+        "silence": 1,
+        "wrong_duration": 1,
+    }
+    assert manifest["selection"]["returned_count"] == 1
+    assert manifest["selection"]["shortfall"] == 2
+    assert len(manifest["candidates"]) == 1
+    assert manifest["candidates"][0]["quality"]["passed"] is True

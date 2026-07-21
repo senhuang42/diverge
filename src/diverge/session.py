@@ -14,6 +14,7 @@ from .generator import GeneratorProtocol, transform_to_noise
 from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
 from .novelty import novelty_scores, recent_kept_embeddings, self_novelty_scores
+from .quality import evaluate_quality
 from .select import Candidate, select_candidates
 from .taste.events import TasteEventStore
 from .taste.features import CandidateContext, audio_descriptors, descriptor_scores
@@ -63,6 +64,10 @@ def run_session(
 
     stage("preparing")
     source, sr = load_audio(config.source)
+    source_duration_s = source.shape[-1] / sr
+    if not 0.25 <= source_duration_s <= 30:
+        raise ValueError("source audio must be between 0.25 and 30 seconds")
+    duration_s = config.duration_s if config.duration_s is not None else source_duration_s
     source_spectral, source_temporal = audio_descriptors(source, sr)
     source_category = (
         "percussive"
@@ -96,7 +101,7 @@ def run_session(
         style_embedding,
         prompt,
         config.transform,
-        config.duration_s,
+        duration_s,
         config.seed,
         config.n_oversample,
     )
@@ -122,7 +127,11 @@ def run_session(
     candidates = []
     contexts = []
     candidate_similarities = []
+    quality_reports = []
+    expected_samples = round(duration_s * sr)
     for index, (audio, embedding) in enumerate(zip(generated, candidate_embeddings, strict=True)):
+        quality = evaluate_quality(audio, expected_samples)
+        quality_reports.append(quality)
         similarities = lock_similarities(
             audio,
             source,
@@ -164,6 +173,9 @@ def run_session(
             if taste_model.observation_count
             else float(legacy_taste[index])
         )
+        lock_score = active_lock_score(similarities, config.locks)
+        if not quality_reports[index].passed:
+            lock_score = -1.0
         candidates.append(
             Candidate(
                 index=index,
@@ -173,7 +185,7 @@ def run_session(
                 novelty=float(novelty[index]),
                 self_novelty=float(self_novelty[index]),
                 locks=similarities,
-                lock_score=active_lock_score(similarities, config.locks),
+                lock_score=lock_score,
                 taste_uncertainty=float(predictions.uncertainty[index]),
                 taste_evidence=float(predictions.evidence[index]),
                 taste_mode=predictions.mode_id[index],
@@ -218,6 +230,7 @@ def run_session(
                 "effective_taste_weight": candidate.effective_taste_weight,
                 "role": candidate.role,
                 "utility": candidate.utility,
+                "quality": quality_reports[candidate.index].to_dict(),
             }
         )
     manifest = {
@@ -227,6 +240,18 @@ def run_session(
             generator.capabilities.to_dict() if hasattr(generator, "capabilities") else None
         ),
         "generator_settings": getattr(generator, "inference_settings", {}),
+        "audio_contract": {
+            "source_duration_s": source_duration_s,
+            "requested_duration_s": config.duration_s,
+            "output_duration_s": duration_s,
+            "source_fit": (
+                "exact"
+                if np.isclose(duration_s, source_duration_s)
+                else ("cropped" if duration_s < source_duration_s else "looped")
+            ),
+            "sample_rate": sr,
+            "expected_samples": expected_samples,
+        },
         "calibration": {
             "transform_noise": {
                 "min": 0.1,
@@ -244,6 +269,13 @@ def run_session(
             "returned_count": len(result.selected),
             "shortfall": max(0, result.requested_count - len(result.selected)),
             "can_try_more": len(result.selected) < result.requested_count,
+            "quality_rejected_count": sum(not report.passed for report in quality_reports),
+            "quality_failure_counts": {
+                reason: sum(reason in report.failures for report in quality_reports)
+                for reason in sorted(
+                    {reason for report in quality_reports for reason in report.failures}
+                )
+            },
             "utility_weights": result.weights,
         },
         "taste": {

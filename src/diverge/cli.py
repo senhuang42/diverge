@@ -55,7 +55,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--spread", type=int, default=60)
     run.add_argument("--drift", type=int, default=35)
     run.add_argument("--locks", default="groove")
-    run.add_argument("--duration", type=float, default=8.0)
+    run.add_argument("--duration", type=float)
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--n-return", type=int, default=8)
     run.add_argument("--n-oversample", type=int)
