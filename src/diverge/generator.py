@@ -305,7 +305,7 @@ class StableAudioGenerator:
         params = inspect.signature(generate_diffusion_cond).parameters
         if "init_audio" not in params or "init_noise_level" not in params:
             raise RuntimeError(
-                "stable-audio-tools 0.0.19 lacks the required SDEdit API; see NOTES.md"
+                "stable-audio-tools does not expose the required init-audio SDEdit API"
             )
         outputs: list[np.ndarray] = []
         index = 0
