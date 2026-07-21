@@ -10,7 +10,8 @@ DivergeAudioProcessor::DivergeAudioProcessor()
 void DivergeAudioProcessor::prepareToPlay(double sampleRate, int)
 {
     currentSampleRate = sampleRate;
-    captureBuffer.setSize(2, static_cast<int>(sampleRate * 30.0), false, true, false);
+    captureBuffer.setSize(supportedCaptureChannels(getTotalNumInputChannels()),
+                          captureCapacitySamples(sampleRate), false, true, false);
     captureBuffer.clear();
 }
 
@@ -18,8 +19,8 @@ void DivergeAudioProcessor::releaseResources() {}
 
 bool DivergeAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-    return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo()
-        && layouts.getMainInputChannelSet() == juce::AudioChannelSet::stereo();
+    return isSupportedMainBusLayout(layouts.getMainInputChannelSet(),
+                                    layouts.getMainOutputChannelSet());
 }
 
 void DivergeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -31,7 +32,9 @@ void DivergeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         const auto count = juce::jmin(buffer.getNumSamples(), captureBuffer.getNumSamples() - start);
         if (count > 0)
         {
-            for (int channel = 0; channel < juce::jmin(2, buffer.getNumChannels()); ++channel)
+            for (int channel = 0;
+                 channel < juce::jmin(captureBuffer.getNumChannels(), buffer.getNumChannels());
+                 ++channel)
                 captureBuffer.copyFrom(channel, start, buffer, channel, 0, count);
             captureWritePosition += count;
         }
@@ -65,17 +68,7 @@ bool DivergeAudioProcessor::finishCapture(const juce::File& destination)
     const auto samples = captureWritePosition.load();
     if (samples <= 0)
         return false;
-    destination.getParentDirectory().createDirectory();
-    juce::WavAudioFormat format;
-    std::unique_ptr<juce::OutputStream> stream = destination.createOutputStream();
-    if (stream == nullptr)
-        return false;
-    auto options = juce::AudioFormatWriterOptions {}
-                       .withSampleRate(currentSampleRate)
-                       .withNumChannels(2)
-                       .withBitsPerSample(32);
-    auto writer = format.createWriterFor(stream, options);
-    return writer != nullptr && writer->writeFromAudioSampleBuffer(captureBuffer, 0, samples);
+    return writeCapturedWav(destination, captureBuffer, samples, currentSampleRate);
 }
 
 bool DivergeAudioProcessor::loadPreview(const juce::File& file,

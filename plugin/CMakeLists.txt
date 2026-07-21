@@ -36,6 +36,8 @@ target_sources(DivergePlugin PRIVATE
   Source/DesignSystem.h
   Source/JobRunner.cpp
   Source/JobRunner.h
+  Source/HostAudioContract.cpp
+  Source/HostAudioContract.h
   Source/PluginEditor.cpp
   Source/PluginEditor.h
   Source/PluginProcessor.cpp
@@ -134,4 +136,21 @@ if(BUILD_TESTING)
     juce::juce_recommended_warning_flags
   )
   add_test(NAME DivergeWorkflowChoiceContract COMMAND DivergeWorkflowModelTests)
+
+  add_executable(DivergeHostAudioContractTests
+    Tests/HostAudioContractTests.cpp
+    Source/HostAudioContract.cpp
+    Source/HostAudioContract.h
+  )
+  target_include_directories(DivergeHostAudioContractTests PRIVATE Source)
+  target_compile_definitions(DivergeHostAudioContractTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+  )
+  target_link_libraries(DivergeHostAudioContractTests PRIVATE
+    juce::juce_audio_formats
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+  )
+  add_test(NAME DivergeHostAudioContract COMMAND DivergeHostAudioContractTests)
 endif()

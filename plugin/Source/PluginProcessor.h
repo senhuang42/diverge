@@ -4,6 +4,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <atomic>
 #include "JobRunner.h"
+#include "HostAudioContract.h"
 #include "PreviewAudio.h"
 
 class DivergeAudioProcessor final : public juce::AudioProcessor

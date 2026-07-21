@@ -30,7 +30,7 @@ The locally built AU validates with:
 auval -v aufx Dvge Snhg
 ```
 
-Run the deterministic helper lifecycle and preview audio-contract tests with:
+Run the deterministic helper, preview, asset, workflow, and host-audio contract tests with:
 
 ```bash
 ctest --test-dir plugin/build -C Debug --output-on-failure
@@ -57,6 +57,8 @@ For a host-free smoke test, open
 
 Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
 the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.
+Mono and stereo tracks remain mono and stereo when captured; captures use the active host sample
+rate and are capped at 30 seconds.
 
 Keep, Pass, Favorite, Use in DAW, and Branch are independent candidate choices: recording one does
 not erase another. Choice changes are appended to each run's `decision-events.jsonl`; the current
