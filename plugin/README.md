@@ -1,8 +1,9 @@
 # Diverge plugin
 
-JUCE 8 shell for the local Diverge pipeline. The plugin passes host audio through and runs
-all model work in the configured Python environment on a background child process. AU,
-VST3, and Standalone use the same source.
+JUCE 8 shell for the local Diverge pipeline. The plugin passes host audio through except while
+auditioning, when the source or result replaces the live input for a true A/B. All model work runs
+in the configured Python environment on a background child process. AU, VST3, and Standalone use
+the same source.
 
 ## Build
 
@@ -29,6 +30,12 @@ The locally built AU validates with:
 auval -v aufx Dvge Snhg
 ```
 
+Run the deterministic helper lifecycle and preview audio-contract tests with:
+
+```bash
+ctest --test-dir plugin/build -C Debug --output-on-failure
+```
+
 The default setup points at this checkout's `.venv`, `models/`, `choices.jsonl`, and `runs/`
 paths. Normal use does not expose them; after moving the checkout or Python environment,
 open **Settings → Advanced diagnostics** to repair the local engine or storage location.
@@ -41,8 +48,9 @@ For a host-free smoke test, open
 2. Set **Change**, then choose which of Groove, Melody, and Timbre to preserve.
 3. Select **Create 8 variations**. Honest stages and completed work remain visible, and the
    processor-owned job continues if the editor closes.
-4. Click waveform cards to switch audition instantly; use Source A/B, Keep, Pass, Favorite,
-   or keyboard shortcuts without leaving the result grid.
+4. Click waveform cards to switch audition instantly; previews are resampled to the active host
+   rate and loudness-matched to the source for audition only. Source A/B preserves the musical
+   position and replaces rather than layers over live input.
 5. Drag a selected card or choose **Use in DAW**. Branch with **More like this**, recover a
    prior batch from **Recent**, or inspect the synchronized **Map** view.
 

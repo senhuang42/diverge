@@ -470,8 +470,18 @@ void DivergeAudioProcessorEditor::configureUi()
     abButton.onClick = [this]
     {
         if (selectedCandidate <= 0) return;
-        if (playingSource) togglePreview(candidateCards[static_cast<size_t>(selectedCandidate - 1)]->file(), selectedCandidate);
-        else togglePreview(audioSlots[0], 0, true);
+        const auto position = audioProcessor.previewProgress();
+        const auto target = playingSource
+                                ? candidateCards[static_cast<size_t>(selectedCandidate - 1)]->file()
+                                : audioSlots[0];
+        if (audioProcessor.loadPreview(target, audioSlots[0]))
+        {
+            audioProcessor.seekPreview(position);
+            audioProcessor.playPreview();
+            playingCandidate = playingSource ? selectedCandidate : 0;
+            playingSource = !playingSource;
+            updateTransportUi();
+        }
     };
     passButton.onClick = [this] { recordDecision(CandidateDecision::pass); };
     keepButton.onClick = [this] { recordDecision(CandidateDecision::keep); };
@@ -1070,7 +1080,7 @@ void DivergeAudioProcessorEditor::togglePreview(const juce::File& file, int cand
         playingCandidate = 0;
         playingSource = false;
     }
-    else if (audioProcessor.loadPreview(file))
+    else if (audioProcessor.loadPreview(file, audioSlots[0]))
     {
         audioProcessor.playPreview();
         playingCandidate = candidateRank;
@@ -1083,7 +1093,8 @@ void DivergeAudioProcessorEditor::seekPreview(const juce::File& file, double pro
                                                int candidateRank, bool source)
 {
     if (!file.existsAsFile()) return;
-    if (audioProcessor.previewPath() != file.getFullPathName() && !audioProcessor.loadPreview(file)) return;
+    if (audioProcessor.previewPath() != file.getFullPathName()
+        && !audioProcessor.loadPreview(file, audioSlots[0])) return;
     audioProcessor.seekPreview(proportion);
     audioProcessor.playPreview();
     playingCandidate = candidateRank;

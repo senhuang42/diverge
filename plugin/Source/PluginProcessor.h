@@ -4,6 +4,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <atomic>
 #include "JobRunner.h"
+#include "PreviewAudio.h"
 
 class DivergeAudioProcessor final : public juce::AudioProcessor
 {
@@ -34,7 +35,7 @@ public:
     void beginCapture();
     bool finishCapture(const juce::File& destination);
     bool isCapturing() const noexcept { return capturing.load(); }
-    bool loadPreview(const juce::File& file);
+    bool loadPreview(const juce::File& file, const juce::File& loudnessReference = {});
     void playPreview();
     void stopPreview();
     void seekPreview(double proportion);

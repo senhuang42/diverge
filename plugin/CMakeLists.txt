@@ -38,6 +38,8 @@ target_sources(DivergePlugin PRIVATE
   Source/PluginEditor.h
   Source/PluginProcessor.cpp
   Source/PluginProcessor.h
+  Source/PreviewAudio.cpp
+  Source/PreviewAudio.h
   Source/WorkflowModel.cpp
   Source/WorkflowModel.h
 )
@@ -78,4 +80,21 @@ if(BUILD_TESTING)
     juce::juce_recommended_warning_flags
   )
   add_test(NAME DivergeJobRunnerLifecycle COMMAND DivergeJobRunnerTests)
+
+  add_executable(DivergePreviewAudioTests
+    Tests/PreviewAudioTests.cpp
+    Source/PreviewAudio.cpp
+    Source/PreviewAudio.h
+  )
+  target_include_directories(DivergePreviewAudioTests PRIVATE Source)
+  target_compile_definitions(DivergePreviewAudioTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+  )
+  target_link_libraries(DivergePreviewAudioTests PRIVATE
+    juce::juce_audio_formats
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
+  )
+  add_test(NAME DivergePreviewAudioContract COMMAND DivergePreviewAudioTests)
 endif()

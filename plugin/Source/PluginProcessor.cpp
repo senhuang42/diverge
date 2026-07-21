@@ -41,13 +41,11 @@ void DivergeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     if (previewPlaying.load())
     {
+        buffer.clear();
         const juce::SpinLock::ScopedTryLockType lock(previewLock);
         if (lock.isLocked())
         {
-            const auto count = juce::jmin(buffer.getNumSamples(), previewBuffer.getNumSamples() - previewPosition);
-            for (int channel = 0; channel < juce::jmin(buffer.getNumChannels(), previewBuffer.getNumChannels()); ++channel)
-                buffer.addFrom(channel, 0, previewBuffer, channel, previewPosition, count);
-            previewPosition += count;
+            previewPosition = renderPreviewReplacing(buffer, previewBuffer, previewPosition);
             if (previewPosition >= previewBuffer.getNumSamples())
                 previewPlaying = false;
         }
@@ -80,22 +78,14 @@ bool DivergeAudioProcessor::finishCapture(const juce::File& destination)
     return writer != nullptr && writer->writeFromAudioSampleBuffer(captureBuffer, 0, samples);
 }
 
-bool DivergeAudioProcessor::loadPreview(const juce::File& file)
+bool DivergeAudioProcessor::loadPreview(const juce::File& file,
+                                        const juce::File& loudnessReference)
 {
-    juce::AudioFormatManager manager;
-    manager.registerBasicFormats();
-    std::unique_ptr<juce::AudioFormatReader> reader(manager.createReaderFor(file));
-    if (reader == nullptr)
+    PreviewClip loaded;
+    if (!loadPreviewClip(file, currentSampleRate, loudnessReference, loaded))
         return false;
-    juce::AudioBuffer<float> loaded(static_cast<int>(reader->numChannels), static_cast<int>(reader->lengthInSamples));
-    reader->read(&loaded, 0, loaded.getNumSamples(), 0, true, true);
-    float peak = 0.0f;
-    for (int channel = 0; channel < loaded.getNumChannels(); ++channel)
-        peak = juce::jmax(peak, loaded.getMagnitude(channel, 0, loaded.getNumSamples()));
-    if (peak > 0.0f)
-        loaded.applyGain(juce::jmin(1.0f, 0.82f / peak));
     const juce::SpinLock::ScopedLockType lock(previewLock);
-    previewBuffer = std::move(loaded);
+    previewBuffer = std::move(loaded.audio);
     previewPosition = 0;
     previewLength = previewBuffer.getNumSamples();
     loadedPreviewPath = file.getFullPathName();
