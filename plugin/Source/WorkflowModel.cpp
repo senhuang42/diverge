@@ -1,22 +1,6 @@
 #include "WorkflowModel.h"
 #include <algorithm>
 
-namespace
-{
-juce::String buildExplanation(const CandidateModel& candidate, int count)
-{
-    if (candidate.rank == count && count > 1)
-        return "Wildcard - the widest departure";
-    if (candidate.referenceFit >= 0.76)
-        return "Closest to your direction";
-    if (candidate.groove >= candidate.melody && candidate.groove >= candidate.timbre)
-        return "Groove held steady, texture moved";
-    if (candidate.melody >= candidate.timbre)
-        return "Melody held steady, character shifted";
-    return "Source character preserved";
-}
-}
-
 bool CandidateChoices::value(CandidateDecision decision) const noexcept
 {
     switch (decision)
@@ -131,6 +115,7 @@ RunModel RunModel::load(const juce::File& runDirectory)
                         candidate.file = runDirectory.getChildFile(
                             "cand_" + juce::String(candidate.rank).paddedLeft('0', 2) + ".wav");
                     candidate.referenceFit = static_cast<double>(item->getProperty("ref_fit"));
+                    candidate.explanation = item->getProperty("explanation").toString();
                     candidate.novelty = static_cast<double>(item->getProperty("novelty"));
                     candidate.taste = static_cast<double>(item->getProperty("taste"));
                     const auto tasteUncertainty = item->getProperty("taste_uncertainty");
@@ -157,9 +142,6 @@ RunModel RunModel::load(const juce::File& runDirectory)
     if (result.shortfall <= 0)
         result.shortfall = juce::jmax(0, result.requestedCount - result.returnedCount);
     result.canTryMore = result.canTryMore || result.shortfall > 0;
-    for (auto& candidate : result.candidates)
-        candidate.explanation = buildExplanation(candidate, candidateCount);
-
     const auto mapValue = juce::JSON::parse(runDirectory.getChildFile("map.json"));
     if (const auto* rows = mapValue.getArray())
         for (const auto& row : *rows)

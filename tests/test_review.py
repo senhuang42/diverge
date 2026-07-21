@@ -32,6 +32,7 @@ def _bundle(tmp_path: Path):
         "novelty": 0.4,
         "taste": 0.5,
         "utility": 0.6,
+        "explanation": "Groove retained; darker texture.",
     }
     (tmp_path / "manifest.json").write_text(json.dumps({"candidates": [candidate]}))
     points = [
@@ -51,7 +52,7 @@ def test_review_bundle_map_and_scores(tmp_path: Path) -> None:
     assert 'href="#candidate-1"' in rendered
     assert 'data-candidate-rank="1"' in render_navigation_html(bundle.candidates)
     assert "Reference" in score_markdown(candidate)
-    assert producer_explanation(candidate) == "Groove held steady while the texture moved."
+    assert producer_explanation(candidate) == "Groove retained; darker texture."
 
 
 def test_record_choice_appends_local_label(tmp_path: Path) -> None:

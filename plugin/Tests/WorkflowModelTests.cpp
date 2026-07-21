@@ -58,7 +58,8 @@ int main()
         "can_try_more": true
       },
       "candidates": [
-        {"rank": 1, "path": "/tmp/one.wav"},
+        {"rank": 1, "path": "/tmp/one.wav",
+         "explanation": "Melody retained; darker texture."},
         {"rank": 2, "path": "/tmp/two.wav"},
         {"rank": 3, "path": "/tmp/three.wav"}
       ]
@@ -73,6 +74,8 @@ int main()
         || !shortRun.preserveMelody || !shortRun.preserveTimbre
         || shortRun.direction != "dusty and restrained" || shortRun.references.size() != 1)
         return fail("run brief was not restored from the manifest");
+    if (shortRun.candidates[0].explanation != "Melody retained; darker texture.")
+        return fail("measured candidate explanation was not loaded");
     const auto emptyManifest = R"json({
       "config": {"source": "/tmp/source.wav", "n_return": 8},
       "selection": {"requested_count": 8, "returned_count": 0, "shortfall": 8,

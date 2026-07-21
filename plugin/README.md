@@ -49,7 +49,8 @@ For a host-free smoke test, open
 3. Select **Create up to 8 variations**. The job continues if the editor closes.
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical
-   position and replaces rather than layers over live input.
+   position and replaces rather than layers over live input. A card explains a measured,
+   batch-distinct difference when the evidence is strong enough; otherwise it stays quiet.
 5. Drag a selected card or choose **Use in DAW**. Diverge first retains a content-addressed object
    and hands the DAW a stable named export under the user's application-support library. Branch
    sources are retained there too, with append-only provenance events. Branch with **More like

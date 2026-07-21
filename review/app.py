@@ -137,18 +137,7 @@ def score_markdown(candidate: dict) -> str:
 
 
 def producer_explanation(candidate: dict) -> str:
-    rank = int(candidate["rank"])
-    locks = candidate.get("locks", {})
-    if rank == 8:
-        return "**Wildcard** — the widest departure in this batch."
-    if float(candidate.get("ref_fit", 0.0)) >= 0.76:
-        return "Closest to your direction."
-    strongest = max(locks, key=locks.get) if locks else None
-    if strongest == "groove":
-        return "Groove held steady while the texture moved."
-    if strongest == "melody":
-        return "Melody held steady while the character shifted."
-    return "Source character preserved."
+    return str(candidate.get("explanation", ""))
 
 
 def record_choice(

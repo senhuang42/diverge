@@ -50,6 +50,9 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert manifest["selection"]["returned_count"] == 3
     assert manifest["selection"]["shortfall"] == 0
     assert manifest["taste"]["version"] == 2
+    assert "descriptors" in manifest["source_analysis"]
+    assert all("explanation" in item for item in manifest["candidates"])
+    assert all("explanation_evidence" in item for item in manifest["candidates"])
     structured = [
         json.loads(item.removeprefix("DIVERGE_EVENT "))
         for item in events

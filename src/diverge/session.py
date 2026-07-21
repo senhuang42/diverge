@@ -10,6 +10,7 @@ from .audio_io import load_audio, match_channels, save_audio
 from .config import RunConfig
 from .critic import taste_scores
 from .embed import Embedder
+from .explanations import candidate_explanations
 from .generator import GeneratorProtocol, transform_to_noise
 from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
@@ -235,6 +236,19 @@ def run_session(
                 "quality": quality_reports[candidate.index].to_dict(),
             }
         )
+    source_descriptors = descriptor_scores(source_spectral, source_temporal)
+    explanations = candidate_explanations(
+        records,
+        source_descriptors,
+        config.locks,
+        config.lock_threshold,
+        # Reference fit is measurable from audio embeddings. Text direction is model input, but
+        # this path does not yet produce a calibrated text-fit score.
+        has_direction=bool(config.references),
+    )
+    for record, explanation in zip(records, explanations, strict=True):
+        record["explanation"] = explanation["text"]
+        record["explanation_evidence"] = explanation["evidence"]
     manifest = {
         "config": config.to_dict(),
         "model_ids": {"embedder": embedder.model_id, "generator": type(generator).__name__},
@@ -256,6 +270,7 @@ def run_session(
             "output_channels": source_channels,
             "expected_samples": expected_samples,
         },
+        "source_analysis": {"descriptors": source_descriptors},
         "calibration": {
             "transform_noise": {
                 "min": 0.1,
