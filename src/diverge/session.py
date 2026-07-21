@@ -58,9 +58,9 @@ def run_session(
                 )
             )
 
-    def stage(name: str) -> None:
+    def stage(name: str, **details: int | bool) -> None:
         progress(f"STAGE {name}")
-        progress("DIVERGE_EVENT " + json.dumps({"stage": name}))
+        progress("DIVERGE_EVENT " + json.dumps({"stage": name, **details}))
 
     stage("preparing")
     source, sr = load_audio(config.source)
@@ -309,5 +309,11 @@ def run_session(
     for path in staging_paths:
         path.unlink()
     staging.rmdir()
-    stage("ready")
+    stage(
+        "ready",
+        requested_count=result.requested_count,
+        returned_count=len(result.selected),
+        shortfall=max(0, result.requested_count - len(result.selected)),
+        can_try_more=len(result.selected) < result.requested_count,
+    )
     return run_dir

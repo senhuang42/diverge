@@ -15,6 +15,10 @@ public:
         juce::String message;
         int completed = 0;
         int total = 0;
+        int requestedCount = 0;
+        int returnedCount = 0;
+        int shortfall = 0;
+        bool canTryMore = false;
         juce::File run;
         juce::String error;
     };

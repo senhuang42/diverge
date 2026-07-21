@@ -62,7 +62,7 @@ CandidateChoices CandidateChoices::fromLegacy(CandidateDecision decision) noexce
 
 bool RunModel::isValid() const noexcept
 {
-    return directory.isDirectory() && !candidates.empty();
+    return directory.isDirectory() && manifestLoaded;
 }
 
 const CandidateModel* RunModel::candidate(int rank) const noexcept
@@ -86,8 +86,10 @@ RunModel RunModel::load(const juce::File& runDirectory)
     const auto manifestValue = juce::JSON::parse(runDirectory.getChildFile("manifest.json"));
     if (const auto* manifest = manifestValue.getDynamicObject())
     {
+        result.manifestLoaded = true;
         const auto config = manifest->getProperty("config");
         result.source = juce::File(config.getProperty("source", {}).toString());
+        result.requestedCount = static_cast<int>(config.getProperty("n_return", 8));
         result.parentRunId = config.getProperty("parent_run_id", {}).toString();
         result.parentCandidate = static_cast<int>(config.getProperty("parent_candidate", 0));
         const auto taste = manifest->getProperty("taste");
@@ -95,6 +97,12 @@ RunModel RunModel::load(const juce::File& runDirectory)
         result.tasteConfidence = static_cast<double>(taste.getProperty("confidence", 0.0));
         result.opinion = static_cast<int>(taste.getProperty("opinion", 50));
         result.tasteWarning = taste.getProperty("warning", {}).toString();
+        const auto selection = manifest->getProperty("selection");
+        result.requestedCount = static_cast<int>(
+            selection.getProperty("requested_count", result.requestedCount));
+        result.returnedCount = static_cast<int>(selection.getProperty("returned_count", 0));
+        result.shortfall = static_cast<int>(selection.getProperty("shortfall", 0));
+        result.canTryMore = static_cast<bool>(selection.getProperty("can_try_more", false));
         if (const auto* references = config.getProperty("references", {}).getArray())
             for (const auto& referenceValue : *references)
                 if (const auto* reference = referenceValue.getArray(); reference != nullptr && !reference->isEmpty())
@@ -133,6 +141,10 @@ RunModel RunModel::load(const juce::File& runDirectory)
     }
 
     const auto candidateCount = static_cast<int>(result.candidates.size());
+    if (result.returnedCount <= 0) result.returnedCount = candidateCount;
+    if (result.shortfall <= 0)
+        result.shortfall = juce::jmax(0, result.requestedCount - result.returnedCount);
+    result.canTryMore = result.canTryMore || result.shortfall > 0;
     for (auto& candidate : result.candidates)
         candidate.explanation = buildExplanation(candidate, candidateCount);
 

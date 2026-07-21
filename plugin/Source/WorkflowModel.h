@@ -72,6 +72,7 @@ struct CandidateModel
 struct RunModel
 {
     juce::File directory;
+    bool manifestLoaded = false;
     juce::File source;
     std::vector<juce::File> references;
     std::vector<CandidateModel> candidates;
@@ -81,6 +82,10 @@ struct RunModel
     int tasteObservations = 0;
     double tasteConfidence = 0.0;
     int opinion = 50;
+    int requestedCount = 8;
+    int returnedCount = 0;
+    int shortfall = 0;
+    bool canTryMore = false;
     juce::String tasteWarning;
 
     bool isValid() const noexcept;

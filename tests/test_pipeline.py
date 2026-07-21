@@ -61,6 +61,13 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
         "ready",
     ]
     assert structured[-2].get("stage") == "choosing"
+    assert structured[-1] == {
+        "stage": "ready",
+        "requested_count": 3,
+        "returned_count": 3,
+        "shortfall": 0,
+        "can_try_more": False,
+    }
     assert all("taste_uncertainty" in item for item in manifest["candidates"])
     assert all(path.stat().st_size > 1_000 for path in waves)
 
@@ -116,5 +123,6 @@ def test_source_duration_defaults_exactly_and_quality_failures_are_rejected(tmp_
     }
     assert manifest["selection"]["returned_count"] == 1
     assert manifest["selection"]["shortfall"] == 2
+    assert manifest["selection"]["can_try_more"] is True
     assert len(manifest["candidates"]) == 1
     assert manifest["candidates"][0]["quality"]["passed"] is True

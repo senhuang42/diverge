@@ -78,13 +78,23 @@ void JobRunner::publishOutput(const juce::String& chunk)
             const auto stage = event.getProperty("stage", {}).toString();
             const auto completed = static_cast<int>(event.getProperty("completed", 0));
             const auto total = static_cast<int>(event.getProperty("total", 0));
-            updateSnapshot([stage, completed, total](Snapshot& state)
+            const auto requested = static_cast<int>(event.getProperty("requested_count", 0));
+            const auto returned = static_cast<int>(event.getProperty("returned_count", 0));
+            const auto shortfall = static_cast<int>(event.getProperty("shortfall", 0));
+            const auto canTryMore = static_cast<bool>(event.getProperty("can_try_more", false));
+            updateSnapshot([stage, completed, total, requested, returned, shortfall, canTryMore](Snapshot& state)
             {
                 if (stage == "preparing") { state.status = Status::preparing; state.message = "Preparing your source"; }
                 else if (stage == "creating") { state.status = Status::creating; state.message = "Creating candidates"; }
                 else if (stage == "comparing") { state.status = Status::comparing; state.message = "Comparing the full set"; }
-                else if (stage == "choosing") { state.status = Status::choosing; state.message = "Choosing eight directions"; }
-                else if (stage == "ready") { state.status = Status::choosing; state.message = "Loading waveforms"; }
+                else if (stage == "choosing") { state.status = Status::choosing; state.message = "Choosing valid directions"; }
+                else if (stage == "ready")
+                {
+                    state.status = Status::choosing;
+                    state.message = requested > 0
+                                        ? juce::String(returned) + " valid variations ready"
+                                        : juce::String("Loading waveforms");
+                }
                 else if (stage == "error")
                 {
                     state.status = Status::failed;
@@ -92,6 +102,10 @@ void JobRunner::publishOutput(const juce::String& chunk)
                 }
                 if (completed > 0) state.completed = completed;
                 if (total > 0) state.total = total;
+                if (requested > 0) state.requestedCount = requested;
+                if (stage == "ready") state.returnedCount = returned;
+                state.shortfall = shortfall;
+                state.canTryMore = canTryMore;
             });
             if (stage == "error")
                 updateSnapshot([message = event.getProperty("message", {}).toString()](Snapshot& state)
@@ -172,7 +186,9 @@ void JobRunner::run()
         if (result.isDirectory())
         {
             state.status = Status::complete;
-            state.message = "Eight variations ready";
+            state.message = state.requestedCount > 0
+                                ? juce::String(state.returnedCount) + " valid variations ready"
+                                : juce::String("Results ready");
         }
         else if (state.status != Status::cancelled)
         {

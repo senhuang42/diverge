@@ -147,7 +147,7 @@ private:
     juce::ToggleButton grooveLock { "Groove" };
     juce::ToggleButton melodyLock { "Melody" };
     juce::ToggleButton timbreLock { "Timbre" };
-    juce::TextButton generateButton { "Create 8 variations" };
+    juce::TextButton generateButton { "Create up to 8" };
     juce::TextButton cancelButton { "Cancel" };
     juce::Label progressLabel;
     juce::Label privacyLabel;
@@ -159,6 +159,7 @@ private:
     juce::TextButton keptButton { "Kept" };
     juce::TextButton recentButton { "Recent" };
     juce::TextButton newButton { "Create new" };
+    juce::TextButton tryMoreButton { "Try more" };
     std::array<std::unique_ptr<WaveformCard>, 8> candidateCards;
     MapComponent map;
     juce::Label selectedTitle;

@@ -59,6 +59,23 @@ int main()
             return fail("cancelled child process survived");
     }
 
+    const auto completedRun = root.getChildFile("completed-run");
+    const auto manifest = completedRun.getChildFile("manifest.json");
+    const auto script = "mkdir -p " + completedRun.getFullPathName().quoted()
+                        + "; echo '{}' > " + manifest.getFullPathName().quoted()
+                        + "; echo 'DIVERGE_EVENT {\"stage\":\"ready\",\"requested_count\":8,"
+                          "\"returned_count\":3,\"shortfall\":5,\"can_try_more\":true}'";
+    JobRunner completed;
+    if (!completed.start({ "/bin/sh", "-c", script }, root))
+        return fail("runner rejected completion fixture");
+    if (!waitUntil([&completed] { return completed.snapshot().status == JobRunner::Status::complete; },
+                   2000))
+        return fail("runner did not complete fixture");
+    const auto snapshot = completed.snapshot();
+    if (snapshot.requestedCount != 8 || snapshot.returnedCount != 3 || snapshot.shortfall != 5
+        || !snapshot.canTryMore || snapshot.message != "3 valid variations ready")
+        return fail("runner did not publish valid result counts");
+
     root.deleteRecursively();
     return EXIT_SUCCESS;
 }

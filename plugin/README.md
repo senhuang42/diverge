@@ -46,8 +46,7 @@ For a host-free smoke test, open
 
 1. Drop, record, or choose a source; optionally add a reference or short direction.
 2. Set **Change**, then choose which of Groove, Melody, and Timbre to preserve.
-3. Select **Create 8 variations**. Honest stages and completed work remain visible, and the
-   processor-owned job continues if the editor closes.
+3. Select **Create up to 8 variations**. The job continues if the editor closes.
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical
    position and replaces rather than layers over live input.
@@ -55,6 +54,9 @@ For a host-free smoke test, open
    and hands the DAW a stable named export under the user's application-support library. Branch
    sources are retained there too, with append-only provenance events. Branch with **More like
    this**, recover a prior batch from **Recent**, or inspect the synchronized **Map** view.
+
+Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
+the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.
 
 Keep, Pass, Favorite, Use in DAW, and Branch are independent candidate choices: recording one does
 not erase another. Choice changes are appended to each run's `decision-events.jsonl`; the current

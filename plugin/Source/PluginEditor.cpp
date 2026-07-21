@@ -352,6 +352,7 @@ void DivergeAudioProcessorEditor::configureUi()
              &changeSection, &changeSlider, &familiarLabel, &wildLabel,
              &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &gridButton, &mapButton, &newButton,
+             &tryMoreButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
              &branchButton, &dragButton, &tighterButton, &widerButton, &shortcutLabel,
              &comparisonLabel, &comparisonAButton, &comparisonBButton,
@@ -458,6 +459,13 @@ void DivergeAudioProcessorEditor::configureUi()
         resized();
     };
     newButton.onClick = [this] { createNew(); };
+    tryMoreButton.onClick = [this]
+    {
+        setPrepareVisible(true);
+        startGeneration();
+    };
+    tryMoreButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::exploration);
+    tryMoreButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     keptButton.setClickingTogglesState(true);
     keptButton.onClick = [this]
     {
@@ -884,6 +892,7 @@ void DivergeAudioProcessorEditor::resized()
         auto toolbar = area.removeFromTop(42);
         briefButton.setBounds(toolbar.removeFromLeft(88));
         resultsTitle.setBounds(toolbar.removeFromLeft(150));
+        tryMoreButton.setBounds(toolbar.removeFromLeft(92));
         newButton.setBounds(toolbar.removeFromRight(110)); toolbar.removeFromRight(8);
         recentButton.setBounds(toolbar.removeFromRight(76)); toolbar.removeFromRight(6);
         mapButton.setBounds(toolbar.removeFromRight(64)); toolbar.removeFromRight(6);
@@ -964,7 +973,8 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     styleEditor.setVisible(visible && showDirectionText);
     cancelButton.setVisible(visible && generating);
     for (auto* component : std::initializer_list<juce::Component*> {
-             &briefButton, &resultsTitle, &gridButton, &mapButton, &keptButton, &recentButton, &newButton, &map, &selectedTitle,
+             &briefButton, &resultsTitle, &gridButton, &mapButton, &keptButton, &recentButton, &newButton,
+             &tryMoreButton, &map, &selectedTitle,
              &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton, &branchButton,
              &dragButton, &tighterButton, &widerButton, &shortcutLabel, &comparisonLabel,
              &comparisonAButton, &comparisonBButton, &comparisonNeitherButton,
@@ -977,6 +987,7 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
     comparisonSkipButton.setVisible(!visible && comparisonVisible);
     for (auto& card : candidateCards) card->setVisible(!visible && !showMap);
     if (!visible) updateResultVisibility();
+    tryMoreButton.setVisible(!visible && loadedRun.canTryMore);
     map.setVisible(!visible && showMap);
     resized();
     repaint();
@@ -1240,6 +1251,9 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     for (int index = 0; index < 8; ++index)
     {
         auto& card = *candidateCards[static_cast<size_t>(index)];
+        card.setAudio(juce::String(index + 1).paddedLeft('0', 2), "No valid result", {});
+        card.setSupportingText({});
+        card.setDraggable(false);
         if (const auto* candidate = loadedRun.candidate(index + 1))
         {
             card.setAudio(juce::String(index + 1).paddedLeft('0', 2), "Missing audio", candidate->file);
@@ -1250,6 +1264,12 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     }
     workflow.activeRunId = run.getFileName();
     workflow.view = WorkflowViewState::results;
+    resultsTitle.setText(
+        loadedRun.shortfall > 0
+            ? juce::String(loadedRun.returnedCount) + " OF " + juce::String(loadedRun.requestedCount)
+                  + " VALID"
+            : juce::String(loadedRun.returnedCount) + " VARIATIONS",
+        juce::dontSendNotification);
     totalChoiceCount = loadedRun.tasteObservations;
     tasteConfidence = loadedRun.tasteConfidence;
     opinionSlider.setValue(loadedRun.opinion, juce::dontSendNotification);
@@ -1257,11 +1277,29 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     comparisonsAsked.clear();
     comparisonsRemaining = 1;
     chooseNextComparison();
-    const auto restore = workflow.selectedCandidate >= 1 ? workflow.selectedCandidate : 1;
+    if (loadedRun.candidates.empty())
+    {
+        selectedCandidate = 0;
+        workflow.selectedCandidate = 0;
+        map.setSelectedRank(0);
+        setPrepareVisible(false);
+        candidateDetail.setText("No candidates met the quality and Preserve constraints",
+                                juce::dontSendNotification);
+        selectedTitle.setText("NO VALID RESULT", juce::dontSendNotification);
+        showToast("No valid variations yet - Try more keeps the same constraints");
+        saveSettings();
+        return;
+    }
+    const auto restore = loadedRun.candidate(workflow.selectedCandidate) != nullptr
+                             ? workflow.selectedCandidate
+                             : loadedRun.candidates.front().rank;
     setPrepareVisible(false);
     selectCandidate(restore, false);
     if (isShowing()) candidateCards[static_cast<size_t>(restore - 1)]->grabKeyboardFocus();
-    showToast("Eight variations ready - click one to hear it");
+    showToast(loadedRun.shortfall > 0
+                  ? juce::String(loadedRun.returnedCount)
+                        + " valid variations ready - Try more keeps the same preserve constraints"
+                  : juce::String(loadedRun.returnedCount) + " variations ready - click one to hear it");
     saveSettings();
 }
 
@@ -1727,8 +1765,10 @@ void DivergeAudioProcessorEditor::updateResultVisibility()
     int visibleCount = 0;
     for (int index = 0; index < 8; ++index)
     {
+        const auto* candidate = loadedRun.candidate(index + 1);
         const auto positive = workflow.choices[static_cast<size_t>(index)].positive();
-        const auto visible = !keptOnly || positive;
+        const auto visible = candidate != nullptr && candidate->file.existsAsFile()
+                             && (!keptOnly || positive);
         candidateCards[static_cast<size_t>(index)]->setVisible(visible);
         if (visible) ++visibleCount;
     }
@@ -2009,7 +2049,7 @@ void DivergeAudioProcessorEditor::timerCallback()
                                                   : juce::String()), juce::dontSendNotification);
     const auto active = audioProcessor.generation().isActive();
     generateButton.setEnabled(!active);
-    generateButton.setButtonText(active ? "Creating..." : "Create 8 variations");
+    generateButton.setButtonText(active ? "Creating..." : "Create up to 8");
     cancelButton.setVisible(showPrepare && active);
 
     if (!audioProcessor.isPreviewPlaying())
