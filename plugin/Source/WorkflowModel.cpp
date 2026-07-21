@@ -271,3 +271,11 @@ CandidateDecision decisionFromString(const juce::String& text)
     if (text == "branched") return CandidateDecision::branched;
     return CandidateDecision::none;
 }
+
+juce::String contradictoryBriefWarning(int change, bool preserveGroove,
+                                       bool preserveMelody, bool preserveTimbre)
+{
+    if (change >= 90 && preserveGroove && preserveMelody && preserveTimbre)
+        return "High Change with every Preserve lock may return fewer results";
+    return {};
+}

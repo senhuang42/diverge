@@ -61,6 +61,7 @@ For a host-free smoke test, open
 
 Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
 the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.
+High Change with all three Preserve locks shows a warning but remains available to try.
 Choose a 1, 2, 4, or 8-bar capture. In a host, recording arms until the next bar and then stops at
 the requested length. Mono/stereo layout, sample rate, tempo, and time signature are preserved as
 host facts in the run config. Host-free capture starts immediately with a 120 BPM fallback.

@@ -1240,6 +1240,10 @@ void DivergeAudioProcessorEditor::startGeneration()
         showToast("Local engine setup needs attention - open Settings");
         return;
     }
+    const auto warning = contradictoryBriefWarning(
+        static_cast<int>(changeSlider.getValue()), grooveLock.getToggleState(),
+        melodyLock.getToggleState(), timbreLock.getToggleState());
+    if (warning.isNotEmpty()) showToast(warning);
     saveSettings();
     const auto config = writeRunConfig();
     const juce::StringArray command { pythonEditor.getText().trim(), "-m", "diverge.cli", "run", "--config",

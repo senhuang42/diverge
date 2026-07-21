@@ -34,6 +34,10 @@ int main()
     if (restored.decisions[0] != CandidateDecision::favorite
         || restored.decisions[1] != CandidateDecision::pass)
         return fail("visual decision was not derived from independent choices");
+    if (contradictoryBriefWarning(89, true, true, true).isNotEmpty()
+        || contradictoryBriefWarning(100, true, true, false).isNotEmpty()
+        || contradictoryBriefWarning(90, true, true, true).isEmpty())
+        return fail("contradictory brief warning did not follow the creative contract");
 
     juce::ValueTree legacy("DivergeState");
     legacy.setProperty("decision1", "exported", nullptr);

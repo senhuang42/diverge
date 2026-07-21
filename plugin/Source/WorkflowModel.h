@@ -130,3 +130,5 @@ struct WorkflowFixtures
 
 juce::String decisionToString(CandidateDecision decision);
 CandidateDecision decisionFromString(const juce::String& text);
+juce::String contradictoryBriefWarning(int change, bool preserveGroove,
+                                       bool preserveMelody, bool preserveTimbre);
