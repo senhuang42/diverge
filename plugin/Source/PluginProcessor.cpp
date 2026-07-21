@@ -86,11 +86,18 @@ void DivergeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     if (previewPlaying.load())
     {
-        buffer.clear();
         const juce::SpinLock::ScopedTryLockType lock(previewLock);
         if (lock.isLocked())
         {
-            previewPosition = renderPreviewReplacing(buffer, previewBuffer, previewPosition);
+            auto startOffset = 0;
+            if (previewAwaitingBeat)
+            {
+                startOffset = planBeatAuditionStart(host, buffer.getNumSamples());
+                if (startOffset < 0) return;
+                previewAwaitingBeat = false;
+            }
+            previewPosition = renderPreviewReplacing(
+                buffer, previewBuffer, previewPosition, startOffset);
             if (previewPosition >= previewBuffer.getNumSamples())
                 previewPlaying = false;
         }
@@ -146,9 +153,10 @@ bool DivergeAudioProcessor::loadPreview(const juce::File& file,
     return true;
 }
 
-void DivergeAudioProcessor::playPreview()
+void DivergeAudioProcessor::playPreview(bool alignToHost)
 {
     const juce::SpinLock::ScopedLockType lock(previewLock);
+    previewAwaitingBeat = alignToHost;
     previewPlaying = previewBuffer.getNumSamples() > 0;
 }
 
@@ -157,6 +165,7 @@ void DivergeAudioProcessor::stopPreview()
     const juce::SpinLock::ScopedLockType lock(previewLock);
     previewPlaying = false;
     previewPosition = 0;
+    previewAwaitingBeat = false;
 }
 
 void DivergeAudioProcessor::seekPreview(double proportion)
@@ -164,6 +173,12 @@ void DivergeAudioProcessor::seekPreview(double proportion)
     const juce::SpinLock::ScopedLockType lock(previewLock);
     previewPosition = juce::jlimit(0, juce::jmax(0, previewLength - 1),
                                    static_cast<int>(proportion * static_cast<double>(previewLength)));
+}
+
+bool DivergeAudioProcessor::isPreviewAwaitingBeat() const
+{
+    const juce::SpinLock::ScopedLockType lock(previewLock);
+    return previewAwaitingBeat;
 }
 
 double DivergeAudioProcessor::previewProgress() const

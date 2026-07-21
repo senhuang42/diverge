@@ -61,6 +61,23 @@ BarCapturePlan planBarCapture(const HostPositionFacts& host, int bars,
     return result;
 }
 
+int planBeatAuditionStart(const HostPositionFacts& host, int blockSamples) noexcept
+{
+    if (!host.available || !host.isPlaying || host.bpm <= 0.0 || !host.ppqAvailable)
+        return 0;
+    const auto denominator = host.timeSignatureDenominator > 0
+                                 ? host.timeSignatureDenominator
+                                 : 4;
+    const auto quartersPerBeat = 4.0 / static_cast<double>(denominator);
+    auto phase = std::fmod(host.ppqPosition, quartersPerBeat);
+    if (phase < 0.0) phase += quartersPerBeat;
+    const auto quartersToBoundary = phase < 1.0e-6 ? 0.0 : quartersPerBeat - phase;
+    const auto safeRate = host.sampleRate > 0.0 ? host.sampleRate : 44100.0;
+    const auto offset = static_cast<int>(std::llround(
+        quartersToBoundary * 60.0 / host.bpm * safeRate));
+    return offset < blockSamples ? juce::jmax(0, offset) : -1;
+}
+
 bool writeCapturedWav(const juce::File& destination,
                       const juce::AudioBuffer<float>& audio,
                       int samples,

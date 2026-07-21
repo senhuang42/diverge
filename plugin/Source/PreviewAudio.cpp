@@ -98,16 +98,18 @@ bool loadPreviewClip(const juce::File& file,
 
 int renderPreviewReplacing(juce::AudioBuffer<float>& output,
                            const juce::AudioBuffer<float>& preview,
-                           int previewPosition)
+                           int previewPosition,
+                           int outputStart)
 {
-    output.clear();
+    outputStart = juce::jlimit(0, output.getNumSamples(), outputStart);
+    output.clear(outputStart, output.getNumSamples() - outputStart);
     const auto available = juce::jmax(0, preview.getNumSamples() - previewPosition);
-    const auto count = juce::jmin(output.getNumSamples(), available);
+    const auto count = juce::jmin(output.getNumSamples() - outputStart, available);
     for (int channel = 0; channel < output.getNumChannels(); ++channel)
     {
         const auto sourceChannel = juce::jmin(channel, preview.getNumChannels() - 1);
         if (sourceChannel >= 0 && count > 0)
-            output.copyFrom(channel, 0, preview, sourceChannel, previewPosition, count);
+            output.copyFrom(channel, outputStart, preview, sourceChannel, previewPosition, count);
     }
     return previewPosition + count;
 }

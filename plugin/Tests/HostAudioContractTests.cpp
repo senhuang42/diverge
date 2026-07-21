@@ -46,6 +46,22 @@ int main()
     host.ppqPosition = 4.0;
     if (planBarCapture(host, 2, 512).startOffset != 0)
         return fail("capture missed an exact host bar boundary");
+    if (planBeatAuditionStart(host, 512) != 0)
+        return fail("audition missed an exact host beat boundary");
+    host.ppqPosition = 3.99;
+    if (planBeatAuditionStart(host, 512) != 240)
+        return fail("audition did not align inside the block at the next host beat");
+    host.ppqPosition = 3.5;
+    if (planBeatAuditionStart(host, 512) >= 0)
+        return fail("audition began before the next host beat reached the block");
+    host.isPlaying = false;
+    if (planBeatAuditionStart(host, 512) != 0)
+        return fail("stopped-host audition did not start immediately");
+    host.isPlaying = true;
+    host.timeSignatureDenominator = 8;
+    host.ppqPosition = 3.5;
+    if (planBeatAuditionStart(host, 512) != 0)
+        return fail("audition ignored the host beat denominator");
 
     const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory)
                           .getNonexistentChildFile("diverge-host-audio", {}, false);

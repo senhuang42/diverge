@@ -17,4 +17,5 @@ bool loadPreviewClip(const juce::File& file,
 
 int renderPreviewReplacing(juce::AudioBuffer<float>& output,
                            const juce::AudioBuffer<float>& preview,
-                           int previewPosition);
+                           int previewPosition,
+                           int outputStart = 0);

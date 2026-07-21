@@ -28,6 +28,7 @@ int supportedCaptureChannels(int inputChannels) noexcept;
 int captureCapacitySamples(double sampleRate) noexcept;
 BarCapturePlan planBarCapture(const HostPositionFacts& host, int bars,
                               int blockSamples) noexcept;
+int planBeatAuditionStart(const HostPositionFacts& host, int blockSamples) noexcept;
 bool writeCapturedWav(const juce::File& destination,
                       const juce::AudioBuffer<float>& audio,
                       int samples,

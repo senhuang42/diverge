@@ -59,6 +59,14 @@ int main()
     if (output.getMagnitude(0, 0, output.getNumSamples()) >= 0.5f)
         return fail("preview layered over live input instead of replacing it");
 
+    for (int channel = 0; channel < output.getNumChannels(); ++channel)
+        juce::FloatVectorOperations::fill(output.getWritePointer(channel), 1.0f,
+                                          output.getNumSamples());
+    const auto partialNext = renderPreviewReplacing(output, clip.audio, 100, 64);
+    if (partialNext != 292) return fail("partial-block preview advanced by the wrong amount");
+    if (output.getSample(0, 63) != 1.0f || output.getMagnitude(0, 64, 192) >= 0.5f)
+        return fail("partial-block preview did not preserve input before its boundary");
+
     root.deleteRecursively();
     return EXIT_SUCCESS;
 }

@@ -39,10 +39,11 @@ public:
     bool isCaptureActive() const noexcept { return captureArmed.load() || capturing.load(); }
     HostPositionFacts hostPosition() const noexcept;
     bool loadPreview(const juce::File& file, const juce::File& loudnessReference = {});
-    void playPreview();
+    void playPreview(bool alignToHost = true);
     void stopPreview();
     void seekPreview(double proportion);
     bool isPreviewPlaying() const noexcept { return previewPlaying.load(); }
+    bool isPreviewAwaitingBeat() const;
     double previewProgress() const;
     juce::String previewPath() const;
     juce::ValueTree& state() noexcept { return pluginState; }
@@ -68,6 +69,7 @@ private:
     mutable juce::SpinLock previewLock;
     int previewPosition = 0;
     int previewLength = 0;
+    bool previewAwaitingBeat = false;
     juce::String loadedPreviewPath;
     std::atomic<bool> previewPlaying { false };
     juce::ValueTree pluginState { "DivergeState" };
