@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
+from diverge.audio_io import load_audio, save_audio
 from diverge.config import RunConfig
 from diverge.embed import Embedder
 from diverge.generator import MockGenerator
@@ -88,6 +89,30 @@ def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> No
     assert len(list(run_dir.glob("cand_*.wav"))) == 2
 
 
+def test_mock_session_preserves_mono_output(tmp_path: Path) -> None:
+    source = save_audio(
+        tmp_path / "mono.wav",
+        np.sin(np.linspace(0, 40 * np.pi, 11_025, dtype=np.float32)) * 0.2,
+    )
+    config = RunConfig(
+        source=source,
+        references=[],
+        n_return=1,
+        n_oversample=1,
+        output_dir=tmp_path / "runs",
+        locks=set(),
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+    run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
+    result, _ = load_audio(run_dir / "cand_01.wav")
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert result.shape == (1, 11_025)
+    assert manifest["audio_contract"]["source_channels"] == 1
+    assert manifest["audio_contract"]["output_channels"] == 1
+
+
 def test_source_duration_defaults_exactly_and_quality_failures_are_rejected(tmp_path: Path) -> None:
     class MixedQualityGenerator:
         emits_progress = False
@@ -115,6 +140,8 @@ def test_source_duration_defaults_exactly_and_quality_failures_are_rejected(tmp_
     run_dir = run_session(config, MixedQualityGenerator(), embedder, progress=lambda _: None)
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["audio_contract"]["source_fit"] == "exact"
+    assert manifest["audio_contract"]["source_channels"] == 2
+    assert manifest["audio_contract"]["output_channels"] == 2
     assert manifest["audio_contract"]["requested_duration_s"] is None
     assert manifest["selection"]["quality_rejected_count"] == 2
     assert manifest["selection"]["quality_failure_counts"] == {

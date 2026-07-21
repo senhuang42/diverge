@@ -51,10 +51,21 @@ def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
     assert fast.duration_s is None
 
 
-def test_audio_is_resampled_stereo_float(tmp_path: Path) -> None:
+def test_audio_preserves_mono_and_resamples_float(tmp_path: Path) -> None:
     path = save_audio(tmp_path / "audio.wav", np.ones(22_050, dtype=np.float32) * 0.2, 22_050)
     audio, sr = load_audio(path)
     assert sr == 44_100
-    assert audio.shape == (2, 44_100)
+    assert audio.shape == (1, 44_100)
     assert audio.dtype == np.float32
     assert np.max(np.abs(audio)) <= 0.98
+
+
+def test_audio_preserves_stereo(tmp_path: Path) -> None:
+    stereo = np.stack(
+        [np.ones(1_000, dtype=np.float32) * 0.1, np.ones(1_000, dtype=np.float32) * 0.2]
+    )
+    path = save_audio(tmp_path / "stereo.wav", stereo)
+    restored, _ = load_audio(path)
+    assert restored.shape == (2, 1_000)
+    assert restored[0].mean() == pytest.approx(0.1)
+    assert restored[1].mean() == pytest.approx(0.2)

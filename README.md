@@ -30,7 +30,7 @@ returns the valid subset and records the shortfall instead of weakening the cons
 
 Outputs default to the source's exact duration. Explicit duration changes are recorded as crops or
 loop fills. Silence, clipping, invalid layouts, severe discontinuities, and wrong-length candidates
-are rejected before selection.
+are rejected before selection. Mono sources produce mono files; stereo sources remain stereo.
 
 ## Plugin
 

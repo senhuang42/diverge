@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .audio_io import load_audio, save_audio
+from .audio_io import load_audio, match_channels, save_audio
 from .config import RunConfig
 from .critic import taste_scores
 from .embed import Embedder
@@ -105,6 +105,8 @@ def run_session(
         config.seed,
         config.n_oversample,
     )
+    source_channels = source.shape[0]
+    generated = [match_channels(audio, source_channels) for audio in generated]
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     run_dir = config.output_dir / stamp
     staging = run_dir / ".oversample"
@@ -250,6 +252,8 @@ def run_session(
                 else ("cropped" if duration_s < source_duration_s else "looped")
             ),
             "sample_rate": sr,
+            "source_channels": source_channels,
+            "output_channels": source_channels,
             "expected_samples": expected_samples,
         },
         "calibration": {
