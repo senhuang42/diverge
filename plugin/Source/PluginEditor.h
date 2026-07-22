@@ -134,7 +134,6 @@ private:
     juce::Label sourceSection;
     juce::Label directionSection;
     juce::Label changeSection;
-    juce::Label preserveSection;
     std::unique_ptr<WaveformCard> sourceCard;
     std::unique_ptr<WaveformCard> directionCard;
     juce::TextButton recordButton { "Record" };
@@ -147,9 +146,6 @@ private:
     juce::Label changeValue;
     juce::Label familiarLabel;
     juce::Label wildLabel;
-    juce::ToggleButton grooveLock { "Groove" };
-    juce::ToggleButton melodyLock { "Melody" };
-    juce::ToggleButton timbreLock { "Timbre" };
     juce::TextButton generateButton { "Create 8 variations" };
     juce::TextButton viewResultsButton { "View 8 variations" };
     juce::TextButton cancelButton { "Cancel" };

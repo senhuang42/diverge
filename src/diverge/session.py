@@ -175,7 +175,9 @@ def run_session(
     source_embedding = (
         style_embedding if not config.references else embedder.embed_audio(source, sr)
     )
-    source_lock_features = prepare_lock_source(source, source_embedding, sr)
+    source_lock_features = (
+        prepare_lock_source(source, source_embedding, sr) if config.locks else None
+    )
     candidates: list[Candidate] = []
     contexts: list[CandidateContext] = []
     quality_reports = []
@@ -204,13 +206,17 @@ def run_session(
             batch_audio, embeddings, novelty, self_novelty, strict=True
         ):
             quality = evaluate_quality(audio, expected_samples)
-            similarities = lock_similarities(
-                audio,
-                source,
-                embedding,
-                source_embedding,
-                sr,
-                source_features=source_lock_features,
+            similarities = (
+                lock_similarities(
+                    audio,
+                    source,
+                    embedding,
+                    source_embedding,
+                    sr,
+                    source_features=source_lock_features,
+                )
+                if config.locks
+                else {}
             )
             spectral, temporal = audio_descriptors(audio, sr)
             batch_quality.append(quality)

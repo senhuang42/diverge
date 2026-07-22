@@ -23,7 +23,13 @@ int main()
     original.choices[1].passed = true;
     original.refreshVisualDecisions();
     juce::ValueTree state("DivergeState");
+    state.setProperty("preserveGroove", true, nullptr);
+    state.setProperty("preserveMelody", true, nullptr);
+    state.setProperty("preserveTimbre", true, nullptr);
     original.saveTo(state);
+    if (state.hasProperty("preserveGroove") || state.hasProperty("preserveMelody")
+        || state.hasProperty("preserveTimbre"))
+        return fail("removed preserve settings remained in plugin state");
 
     WorkflowModel restored;
     restored.restoreFrom(state);
@@ -34,11 +40,6 @@ int main()
     if (restored.decisions[0] != CandidateDecision::favorite
         || restored.decisions[1] != CandidateDecision::pass)
         return fail("visual decision was not derived from independent choices");
-    if (contradictoryBriefWarning(89, true, true, true).isNotEmpty()
-        || contradictoryBriefWarning(100, true, true, false).isNotEmpty()
-        || contradictoryBriefWarning(90, true, true, true).isEmpty())
-        return fail("contradictory brief warning did not follow the creative contract");
-
     juce::ValueTree legacy("DivergeState");
     legacy.setProperty("decision1", "exported", nullptr);
     WorkflowModel migrated;
@@ -53,7 +54,7 @@ int main()
       "config": {
         "source": "/tmp/source.wav", "references": [["/tmp/ref.wav", 1.0]],
         "n_return": 8, "transform": 62, "spread": 35,
-        "locks": ["melody", "timbre"], "style_text_hint": "dusty and restrained"
+        "style_text_hint": "dusty and restrained"
       },
       "selection": {
         "requested_count": 8,
@@ -74,8 +75,7 @@ int main()
     if (!shortRun.isValid() || shortRun.requestedCount != 8 || shortRun.returnedCount != 3
         || shortRun.shortfall != 5 || !shortRun.canTryMore)
         return fail("valid result shortfall was not loaded");
-    if (shortRun.change != 62 || shortRun.range != 35 || shortRun.preserveGroove
-        || !shortRun.preserveMelody || !shortRun.preserveTimbre
+    if (shortRun.change != 62 || shortRun.range != 35
         || shortRun.direction != "dusty and restrained" || shortRun.references.size() != 1)
         return fail("run brief was not restored from the manifest");
     if (shortRun.candidates[0].explanation != "Melody retained; darker texture.")

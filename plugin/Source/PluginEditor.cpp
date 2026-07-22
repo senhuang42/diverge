@@ -371,8 +371,7 @@ void DivergeAudioProcessorEditor::configureUi()
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
              &changeSection, &changeSlider, &changeValue, &familiarLabel, &wildLabel,
-             &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton,
-             &viewResultsButton, &cancelButton,
+             &generateButton, &viewResultsButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &newButton,
              &tryMoreButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
@@ -389,7 +388,7 @@ void DivergeAudioProcessorEditor::configureUi()
 
     brandLabel.setText("DIVERGE", juce::dontSendNotification);
     brandLabel.setFont(DivergeTheme::display(DivergeTheme::Type::title + 2.0f));
-    promiseLabel.setText("Recognizable where you choose. Different where it matters.", juce::dontSendNotification);
+    promiseLabel.setText("One sound. Useful alternatives.", juce::dontSendNotification);
     promiseLabel.setFont(DivergeTheme::body(DivergeTheme::Type::meta));
     promiseLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     // A standing fact about where the audio lives, not a decision anybody made, so it stays
@@ -403,7 +402,6 @@ void DivergeAudioProcessorEditor::configureUi()
     configureSectionLabel(sourceSection, "Source");
     configureSectionLabel(directionSection, "Reference");
     configureSectionLabel(changeSection, "Change");
-    configureSectionLabel(preserveSection, "Preserve");
     refreshSlotCard(0);
     refreshSlotCard(1);
     sourceCard->onChoose = [this] { chooseAudio(0); };
@@ -460,9 +458,6 @@ void DivergeAudioProcessorEditor::configureUi()
     familiarLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     configureSupportingLabel(wildLabel, "Unrecognizable", juce::Justification::centredRight);
     wildLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
-    grooveLock.setToggleState(true, juce::dontSendNotification);
-    for (auto* lock : { &grooveLock, &melodyLock, &timbreLock }) lock->setClickingTogglesState(true);
-
     generateButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::exploration);
     generateButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     generateButton.onClick = [this] { startGeneration(); };
@@ -931,9 +926,8 @@ void DivergeAudioProcessorEditor::resized()
         }
 
         area.removeFromTop(34);
-        auto intent = area.removeFromTop(118);
-        auto change = intent.removeFromLeft((intent.getWidth() - 40) / 2);
-        intent.removeFromLeft(40);
+        auto change = area.removeFromTop(118).withSizeKeepingCentre(
+            juce::jmin(440, area.getWidth()), 118);
         auto changeHeader = change.removeFromTop(30);
         changeValue.setBounds(changeHeader.removeFromRight(70));
         changeSection.setBounds(changeHeader);
@@ -942,13 +936,6 @@ void DivergeAudioProcessorEditor::resized()
         familiarLabel.setBounds(endpoints.removeFromLeft(endpoints.getWidth() / 2));
         wildLabel.setBounds(endpoints);
         changeSlider.setBounds(change.removeFromTop(40));
-        preserveSection.setBounds(intent.removeFromTop(30));
-        intent.removeFromTop(12);
-        auto locks = intent.removeFromTop(44);
-        const auto lockWidth = (locks.getWidth() - 16) / 3;
-        grooveLock.setBounds(locks.removeFromLeft(lockWidth)); locks.removeFromLeft(8);
-        melodyLock.setBounds(locks.removeFromLeft(lockWidth)); locks.removeFromLeft(8);
-        timbreLock.setBounds(locks);
 
         // The action closes the screen from the bottom, so the brief never floats in a field
         // of dead space when the window is tall.
@@ -1037,8 +1024,7 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton,
              &changeSection, &changeSlider, &changeValue, &familiarLabel, &wildLabel,
-             &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton,
-             &progressLabel, &privacyLabel })
+             &generateButton, &progressLabel, &privacyLabel })
         component->setVisible(visible);
     viewResultsButton.setVisible(visible && loadedRun.isValid() && !loadedRun.candidates.empty());
     refreshSlotCard(1);
@@ -1256,11 +1242,6 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("transform", static_cast<int>(changeSlider.getValue()));
     object->setProperty("spread", workflow.range);
     object->setProperty("drift", libraryEditor.getText().trim().isNotEmpty() ? 35 : 0);
-    juce::Array<juce::var> locks;
-    if (grooveLock.getToggleState()) locks.add("groove");
-    if (melodyLock.getToggleState()) locks.add("melody");
-    if (timbreLock.getToggleState()) locks.add("timbre");
-    object->setProperty("locks", locks);
     object->setProperty("n_return", 8);
     object->setProperty("n_oversample", 16);
     object->setProperty("seed", juce::Random::getSystemRandom().nextInt());
@@ -1326,10 +1307,6 @@ void DivergeAudioProcessorEditor::startGeneration()
         showToast("Local engine setup needs attention - open Settings");
         return;
     }
-    const auto warning = contradictoryBriefWarning(
-        static_cast<int>(changeSlider.getValue()), grooveLock.getToggleState(),
-        melodyLock.getToggleState(), timbreLock.getToggleState());
-    if (warning.isNotEmpty()) showToast(warning);
     saveSettings();
     const auto config = writeRunConfig();
     const juce::StringArray command { pythonEditor.getText().trim(), "-m", "diverge.cli", "run", "--config",
@@ -1365,14 +1342,8 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
         workflow.audioSlots = audioSlots;
         workflow.change = loadedRun.change;
         workflow.range = loadedRun.range;
-        workflow.preserveGroove = loadedRun.preserveGroove;
-        workflow.preserveMelody = loadedRun.preserveMelody;
-        workflow.preserveTimbre = loadedRun.preserveTimbre;
         workflow.direction = loadedRun.direction;
         changeSlider.setValue(loadedRun.change, juce::dontSendNotification);
-        grooveLock.setToggleState(loadedRun.preserveGroove, juce::dontSendNotification);
-        melodyLock.setToggleState(loadedRun.preserveMelody, juce::dontSendNotification);
-        timbreLock.setToggleState(loadedRun.preserveTimbre, juce::dontSendNotification);
         styleEditor.setText(loadedRun.direction, false);
         showDirectionText = loadedRun.direction.isNotEmpty();
         addDirectionButton.setButtonText(showDirectionText ? "- Hide text" : "+ Text direction");
@@ -1418,7 +1389,7 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
         workflow.selectedCandidate = 0;
         map.setSelectedRank(0);
         setPrepareVisible(false);
-        candidateDetail.setText("No candidates met the quality and Preserve constraints",
+        candidateDetail.setText("No candidates met the quality checks",
                                 juce::dontSendNotification);
         selectedTitle.setText("--", juce::dontSendNotification);
         for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
@@ -1435,7 +1406,7 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     if (isShowing()) candidateCards[static_cast<size_t>(restore - 1)]->grabKeyboardFocus();
     showToast(loadedRun.shortfall > 0
                   ? juce::String(loadedRun.returnedCount)
-                        + " valid variations ready - Try more keeps the same preserve constraints"
+                        + " valid variations ready - Try more keeps the same brief"
                   : juce::String(loadedRun.returnedCount) + " variations ready - click one to hear it");
     saveSettings();
 }
@@ -2076,9 +2047,6 @@ void DivergeAudioProcessorEditor::restoreSettings()
     opinionSlider.setValue(workflow.opinion, juce::dontSendNotification);
     opinionValue.setText(juce::String(workflow.opinion) + "%", juce::dontSendNotification);
     learningToggle.setToggleState(workflow.learningEnabled, juce::dontSendNotification);
-    grooveLock.setToggleState(workflow.preserveGroove, juce::dontSendNotification);
-    melodyLock.setToggleState(workflow.preserveMelody, juce::dontSendNotification);
-    timbreLock.setToggleState(workflow.preserveTimbre, juce::dontSendNotification);
     styleEditor.setText(workflow.direction, false);
     showDirectionText = workflow.direction.isNotEmpty();
     addDirectionButton.setButtonText(showDirectionText ? "- Hide text" : "+ Text direction");
@@ -2109,9 +2077,6 @@ void DivergeAudioProcessorEditor::saveSettings()
     workflow.change = static_cast<int>(changeSlider.getValue());
     workflow.opinion = static_cast<int>(opinionSlider.getValue());
     workflow.learningEnabled = learningToggle.getToggleState();
-    workflow.preserveGroove = grooveLock.getToggleState();
-    workflow.preserveMelody = melodyLock.getToggleState();
-    workflow.preserveTimbre = timbreLock.getToggleState();
     workflow.direction = styleHint();
     workflow.selectedCandidate = selectedCandidate;
     workflow.saveTo(state);

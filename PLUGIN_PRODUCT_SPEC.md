@@ -43,7 +43,7 @@ useful result back into the session before momentum is lost.
 
 ### Product promise
 
-**Keep what matters. Change what does not. Hear the useful possibilities.**
+**Turn one promising sound into useful possibilities.**
 
 ### What it is not
 
@@ -56,7 +56,7 @@ for transforming audio the producer supplies.
 ### What is already valuable
 
 - The source-first concept fits an active production session better than blank-page prompting.
-- `Change` and `Preserve Groove / Melody / Timbre` express an understandable creative contract.
+- `Change` gives the producer one understandable control over source identity.
 - Oversample-and-select is a better batch strategy than showing the first eight random seeds.
 - The result grid, instant card selection, A/B action, Keep/Pass/Favorite, drag to DAW, branch,
   history, and optional map form a coherent workflow.
@@ -72,7 +72,6 @@ for transforming audio the producer supplies.
 | Severity | Gap | Evidence in the current product | Required response |
 | --- | --- | --- | --- |
 | Release blocker | Generation is based on an obsolete latency/quality baseline | The current Stable Audio Open Small path took about 87 seconds for a fast 16-to-8 run in repository calibration. Stable Audio 3 Small now reports seconds-level Apple Silicon generation and supports audio-to-audio, inpainting, and continuation. | Replace the default engine after a measured quality/performance bake-off. Target a complete useful batch in seconds, not minutes. |
-| Release blocker | `Preserve` is not yet a trustworthy contract | Selection silently relaxes lock thresholds until eight candidates survive. A reviewed real manifest requested `0.55` and returned candidates after relaxing to `0.40`. | Never silently violate a preserve constraint. Generate more, return fewer, or explicitly ask the user to relax it. Validate each preserve dimension perceptually. |
 | Release blocker | Reference steering is weaker than the UI implies | `StableAudioGenerator.generate()` discards `style_embedding`; reference audio affects post-generation CLAP ranking, while model conditioning uses text, sometimes inferred from a filename. | Prove that a reference materially shifts a batch in blind tests. Implement real conditioning or honest analysis-plus-ranking; otherwise demote or rename the feature. |
 | Release blocker | The plugin is not a distributable product | Defaults point to the checkout's Python, models, choices, and runs paths. Model setup requires a separate environment, script, gated download, and token. | Ship a signed backend/runtime and guided model manager. A normal user must never see a Python path or need a development checkout. |
 | Release blocker | Audition is not a true host-aware A/B | Preview audio is added to pass-through input, is not synchronized to host transport, and is loaded without resampling to the host sample rate. At 48/96 kHz it can play at the wrong pitch and length. | Resample correctly, replace rather than layer during A/B, align to host transport when possible, and loudness-match audition only. |
@@ -118,15 +117,14 @@ or adjacent categories. Lead with the job and the owned input.
 
 ### Differentiating claim
 
-> From your sound, Diverge creates eight useful directions that are different from each other and
-> recognizable in the ways you choose.
+> From your sound, Diverge creates eight useful directions whose distance you control with one
+> clear Change setting.
 
-This claim contains four testable differentiators:
+This claim contains three testable differentiators:
 
 1. **Your sound:** arbitrary user-owned audio, not only a vendor catalog.
-2. **Recognizable by choice:** explicit, verified preservation dimensions.
-3. **Different from each other:** quality-diversity selection rather than random seeds.
-4. **Useful directions:** session-fit, rapid A/B, durable DAW handoff, and iterative branching.
+2. **Different from each other:** quality-diversity selection rather than random seeds.
+3. **Useful directions:** session-fit, rapid A/B, durable DAW handoff, and iterative branching.
 
 Local/private execution and explicit taste learning support the claim but are not sufficient
 positioning by themselves.
@@ -142,7 +140,7 @@ until producer testing demonstrates that constraint fidelity and curation save m
 ### 5.1 Experience principles
 
 1. **The source is the hero.** The UI begins with the exact session region, not a prompt.
-2. **Preserve is a contract.** The product does not quietly weaken constraints to fill a grid.
+2. **Change stays legible.** One primary control sets how far results move from the source.
 3. **Speed protects agency.** First useful audio should arrive while the producer still remembers
    why they opened the plugin.
 4. **A batch must have a point.** Results should cover meaningfully different directions, not
@@ -171,21 +169,15 @@ until producer testing demonstrates that constraint fidelity and curation save m
 #### B. Set the brief
 
 - `Change` remains the primary control with Familiar, Evolved, and Wild anchors.
-- `Preserve` offers Groove, Melody, and Timbre only where the source supports them. Tooltips define
-  what each control can and cannot guarantee.
 - An optional `Direction` accepts one reference audio file or a short text description.
 - Hide model, sampler, seed, oversampling, CLAP, and utility settings from normal use.
-- Warn about contradictory briefs such as maximum Change with all dimensions preserved, but allow
-  an expert to try them.
 
 #### C. Create
 
 - Return the first playable candidate progressively, then fill the curated set.
-- Generate an adaptive pool, run quality checks, enforce constraints, deduplicate, and select up
-  to eight directions.
-- If the model pool cannot supply eight valid results within the generation budget, fill the
-  remaining slots with clearly labeled source-derived treatments that pass the same constraints.
-  Never silently relax a Preserve threshold.
+- Generate an adaptive pool, run quality checks, deduplicate, and select up to eight directions.
+- If the model pool cannot supply eight distinct valid results within the generation budget,
+  present the valid set honestly rather than padding it with duplicates.
 - A job survives editor closure, project save/reopen, and recoverable backend failure.
 - Progress reports real stages and completed work; it does not invent an exact ETA.
 
@@ -217,7 +209,7 @@ until producer testing demonstrates that constraint fidelity and curation save m
 - Learning is off or neutral until there is enough evidence to improve a decision.
 - Use only explicit events and contextual features; no passive monitoring or network telemetry.
 - Provide pause, reset-with-recovery, import, export, and plain-language tendencies.
-- The current brief and hard constraints always outrank taste.
+- The current brief always outranks taste.
 - Do not claim personalization improves results until an offline chronological evaluation and a
   blinded producer study both show lift.
 
@@ -229,19 +221,16 @@ The selector is the center of the differentiated product and needs an explicit c
    layouts, low reconstruction quality, and obvious loop-seam failures.
 2. **Session-fit gate:** result duration is sample-accurate; tempo/key requirements are measured
    where requested.
-3. **Preserve gate:** each active dimension must meet a source-class-calibrated threshold. No
-   automatic relaxation is invisible to the user.
-4. **Direction response:** when direction is present, candidates must measurably move toward it
+3. **Direction response:** when direction is present, candidates must measurably move toward it
    relative to a no-direction baseline without collapsing source identity.
-5. **Deduplication:** reject candidates that are near-duplicates in both semantic embedding and
+4. **Deduplication:** reject candidates that are near-duplicates in both semantic embedding and
    relevant temporal/pitch features.
-6. **Coverage:** select a Pareto-balanced set across quality, source identity, direction fit, and
+5. **Coverage:** select a Pareto-balanced set across quality, source identity, direction fit, and
    meaningful diversity. Always reserve at most one clearly labeled wildcard.
-7. **Taste ordering:** use confidence-capped taste only after the set satisfies all earlier gates.
+6. **Taste ordering:** use confidence-capped taste only after the set satisfies all earlier gates.
    Taste should mostly order and allocate within a valid pool, not rescue invalid candidates.
-8. **Explanations:** derive card language from measured differences, e.g. `same groove, darker
-   texture` or `new rhythm, melody retained`. Suppress explanations that are not confident or
-   discriminative.
+7. **Explanations:** derive card language from measured differences, e.g. `darker texture` or
+   `more syncopated`. Suppress explanations that are not confident or discriminative.
 
 ### 5.4 Runtime and architecture
 
@@ -287,7 +276,7 @@ The selector is the center of the differentiated product and needs an explicit c
 - Stable Audio 3 or another measured seconds-level local engine.
 - Drag/drop and host-aligned region capture with exact output duration.
 - Correct mono/stereo and 44.1/48/88.2/96 kHz behavior.
-- Change, trustworthy Preserve, and one optional Direction.
+- Change and one optional Direction.
 - Curated grid of up to eight, true source A/B, Keep/Pass/Favorite, stable drag/export.
 - More like this, recent history, lineage, and crash/editor-close recovery.
 - Packaged runtime/model setup, AU/VST3/Standalone, signed/notarized macOS delivery.
@@ -311,13 +300,11 @@ The selector is the center of the differentiated product and needs an explicit c
 
 ### Product truth
 
-- In blind comparison, at least 80% of target producers correctly identify the locked dimension as
-  better preserved than in an unlocked control batch for each supported source class.
 - A reference-conditioned batch is judged closer to its intended direction than a no-reference or
   wrong-reference batch at least 70% of the time. If not, Direction does not ship as a headline
   feature.
 - Fewer than 10% of displayed candidates are judged redundant with another displayed candidate.
-- At least 4 of 5 users can explain Change, each Preserve control, Keep, Favorite, and More like this
+- At least 4 of 5 users can explain Change, Keep, Favorite, and More like this
   after one observed session without implementation terminology.
 
 ### Workflow
@@ -354,17 +341,17 @@ The selector is the center of the differentiated product and needs an explicit c
 
 Build a representative, rights-cleared corpus across drums, melodic loops, bass, recorded
 instruments, textures, and one-shots. Add old-engine, Stable Audio 3 Small Music, Small SFX, and
-optionally Medium adapters. Measure latency, memory, source identity, preserve adherence,
+optionally Medium adapters. Measure latency, memory, source identity, Change response,
 direction response, seam quality, and blind preference.
 
 Gate: select an engine only if it improves speed by at least 4x, is preferred or tied for useful
-audio quality, and supports a legally distributable path. If no engine makes Preserve and
-Direction truthful, narrow the product before proceeding.
+audio quality, and supports a legally distributable path. If no engine makes Change and Direction
+truthful, narrow the product before proceeding.
 
 ### Phase 1: make the current experience session-correct
 
 Implement host/sample-rate-safe preview, true A/B, exact region/duration handling, mono/stereo,
-quality gates, non-relaxing preserve behavior, independent decision events, and durable assets.
+quality gates, independent decision events, and durable assets.
 Reuse the current design system and result grid.
 
 Gate: a deterministic host matrix and five observed producer sessions complete without wrong

@@ -214,7 +214,7 @@ void DivergeLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton&
     const auto on = button.getToggleState();
     const auto corner = 9.0f;
 
-    // A preserve lock is held or it is not. Held reads as paper: the frame is lit, not tinted.
+    // Toggle state reads as paper rather than relying on a colour tint.
     g.setColour(on ? DivergeTheme::raised.brighter(0.06f + hover * 0.05f)
                    : DivergeTheme::surface.withAlpha(0.45f + hover * 0.4f));
     g.fillRoundedRectangle(bounds, corner);

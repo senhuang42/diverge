@@ -77,15 +77,6 @@ RunModel RunModel::load(const juce::File& runDirectory)
         result.change = static_cast<int>(config.getProperty("transform", 45));
         result.range = static_cast<int>(config.getProperty("spread", 60));
         result.direction = config.getProperty("style_text_hint", {}).toString();
-        const auto briefLocks = config.getProperty("locks", {});
-        result.preserveGroove = false;
-        if (const auto* lockNames = briefLocks.getArray())
-            for (const auto& lock : *lockNames)
-            {
-                result.preserveGroove = result.preserveGroove || lock.toString() == "groove";
-                result.preserveMelody = result.preserveMelody || lock.toString() == "melody";
-                result.preserveTimbre = result.preserveTimbre || lock.toString() == "timbre";
-            }
         result.parentRunId = config.getProperty("parent_run_id", {}).toString();
         result.parentCandidate = static_cast<int>(config.getProperty("parent_candidate", 0));
         const auto taste = manifest->getProperty("taste");
@@ -129,10 +120,6 @@ RunModel RunModel::load(const juce::File& runDirectory)
                     candidate.tasteMode = item->getProperty("taste_mode").toString();
                     candidate.role = item->getProperty("role").toString();
                     candidate.utility = static_cast<double>(item->getProperty("utility"));
-                    const auto locks = item->getProperty("locks");
-                    candidate.groove = static_cast<double>(locks.getProperty("groove", 0.0));
-                    candidate.melody = static_cast<double>(locks.getProperty("melody", 0.0));
-                    candidate.timbre = static_cast<double>(locks.getProperty("timbre", 0.0));
                     result.candidates.push_back(std::move(candidate));
                 }
     }
@@ -163,9 +150,6 @@ void WorkflowModel::restoreFrom(const juce::ValueTree& state)
     range = static_cast<int>(state.getProperty("range", 60));
     opinion = static_cast<int>(state.getProperty("opinion", 50));
     learningEnabled = static_cast<bool>(state.getProperty("learningEnabled", true));
-    preserveGroove = static_cast<bool>(state.getProperty("preserveGroove", true));
-    preserveMelody = static_cast<bool>(state.getProperty("preserveMelody", false));
-    preserveTimbre = static_cast<bool>(state.getProperty("preserveTimbre", false));
     direction = state.getProperty("direction", {}).toString();
     activeRunId = state.getProperty("activeRunId", {}).toString();
     selectedCandidate = static_cast<int>(state.getProperty("selectedCandidate", 0));
@@ -204,9 +188,9 @@ void WorkflowModel::saveTo(juce::ValueTree& state) const
     state.setProperty("range", range, nullptr);
     state.setProperty("opinion", opinion, nullptr);
     state.setProperty("learningEnabled", learningEnabled, nullptr);
-    state.setProperty("preserveGroove", preserveGroove, nullptr);
-    state.setProperty("preserveMelody", preserveMelody, nullptr);
-    state.setProperty("preserveTimbre", preserveTimbre, nullptr);
+    state.removeProperty("preserveGroove", nullptr);
+    state.removeProperty("preserveMelody", nullptr);
+    state.removeProperty("preserveTimbre", nullptr);
     state.setProperty("direction", direction, nullptr);
     state.setProperty("activeRunId", activeRunId, nullptr);
     state.setProperty("selectedCandidate", selectedCandidate, nullptr);
@@ -236,8 +220,6 @@ WorkflowModel WorkflowFixtures::make(WorkflowViewState state, const juce::File& 
     fixture.audioSlots[0] = juce::File("/Fixtures/source.wav");
     fixture.audioSlots[1] = juce::File("/Fixtures/direction.wav");
     fixture.change = 52;
-    fixture.preserveGroove = true;
-    fixture.preserveMelody = true;
     if (state == WorkflowViewState::needsSetup)
         fixture.audioSlots = {};
     if (state == WorkflowViewState::results && fixtureRun.isDirectory())
@@ -270,12 +252,4 @@ CandidateDecision decisionFromString(const juce::String& text)
     if (text == "exported") return CandidateDecision::exported;
     if (text == "branched") return CandidateDecision::branched;
     return CandidateDecision::none;
-}
-
-juce::String contradictoryBriefWarning(int change, bool preserveGroove,
-                                       bool preserveMelody, bool preserveTimbre)
-{
-    if (change >= 90 && preserveGroove && preserveMelody && preserveTimbre)
-        return "High Change with every Preserve lock may return fewer results";
-    return {};
 }

@@ -25,15 +25,13 @@ When a promising sound is stuck, help the producer explore controlled alternativ
 useful result back into the session before momentum is lost. Success is a result dragged into the
 session, not time spent in the plugin.
 
-Product promise: keep what matters, change what does not, hear the useful possibilities.
+Product promise: turn one promising sound into useful alternatives without breaking momentum.
 
 ## Positioning
 
 A controlled variation instrument that turns a producer's own session fragment into a small,
-meaningfully different set while preserving the musical properties they choose. The defensible
-mechanism is the creative contract, not model access: the producer states what must survive
-(Groove, Melody, Timbre) and how far the batch may move (Change), and the batch is oversampled,
-validated against that contract, and selected for non-redundancy before it is ever shown.
+meaningfully different set. The producer chooses how far the batch may move with Change, and the
+batch is oversampled, quality-checked, and selected for non-redundancy before it is ever shown.
 
 Diverge is not a prompt-to-song service, sample marketplace, autonomous composer, real-time audio
 effect, or replacement for detailed synthesis. It is pull-based and generate-then-curate.
@@ -49,9 +47,8 @@ branched from.
 
 ## Capabilities and Constraints
 
-- Every batch presents exactly eight results. Quality and Preserve checks are hard gates; missing
-  slots are filled with labeled, source-derived lock-safe treatments rather than by lowering the
-  requested threshold.
+- Every batch requests eight results. Quality and pairwise uniqueness are hard gates; the UI is
+  honest when fewer distinct valid results are available.
 - Keep, Pass, Favorite, Use in DAW, and Branch are independent per-candidate choices; recording
   one does not erase another. Choices are appended to a per-run event log and learned locally.
 - Creative state, active run, and selection restore with the plugin instance.
@@ -78,13 +75,13 @@ palette, typeface, or mark is currently a commitment.
 ## Product Principles
 
 1. The producer's own material is the subject; the plugin never starts from a blank page.
-2. The creative contract is honored literally. Preserve locks and Change are promises, not hints.
+2. Change is the single, understandable control for how far alternatives move from the source.
 3. Always show a full, non-redundant set. Never silently relax what was asked for.
 4. Choosing is the real work. Comparison, marking, and recovery outrank generation chrome.
 5. Everything stays local, and the interface should make that legible rather than merely claimed.
 
 ## Accessibility & Inclusion
 
-State must never be carried by color alone; decisions and locks also read through shape, mark, or
-text. Keyboard operation covers selection, audition, and the Keep/Pass choices. Reduced motion is
-honored through `DIVERGE_REDUCED_MOTION`.
+State must never be carried by color alone; decisions also read through shape, mark, or text.
+Keyboard operation covers selection, audition, and the Keep/Pass choices. Reduced motion is honored
+through `DIVERGE_REDUCED_MOTION`.

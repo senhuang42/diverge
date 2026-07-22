@@ -95,7 +95,9 @@ def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> No
         model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
     )
     run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(list(run_dir.glob("cand_*.wav"))) == 2
+    assert all(candidate["locks"] == {} for candidate in manifest["candidates"])
 
 
 def test_explicit_duration_crops_the_source_region_before_generation(tmp_path: Path) -> None:

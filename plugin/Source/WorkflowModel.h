@@ -57,9 +57,6 @@ struct CandidateModel
     juce::String explanation;
     CandidateDecision decision = CandidateDecision::none;
     double referenceFit = 0.0;
-    double groove = 0.0;
-    double melody = 0.0;
-    double timbre = 0.0;
     double novelty = 0.0;
     double taste = 0.0;
     double tasteUncertainty = 1.0;
@@ -79,9 +76,6 @@ struct RunModel
     std::vector<MapPoint> mapPoints;
     int change = 45;
     int range = 60;
-    bool preserveGroove = true;
-    bool preserveMelody = false;
-    bool preserveTimbre = false;
     juce::String direction;
     juce::String parentRunId;
     int parentCandidate = 0;
@@ -108,9 +102,6 @@ struct WorkflowModel
     int range = 60;
     int opinion = 50;
     bool learningEnabled = true;
-    bool preserveGroove = true;
-    bool preserveMelody = false;
-    bool preserveTimbre = false;
     juce::String direction;
     juce::String activeRunId;
     int selectedCandidate = 0;
@@ -130,5 +121,3 @@ struct WorkflowFixtures
 
 juce::String decisionToString(CandidateDecision decision);
 CandidateDecision decisionFromString(const juce::String& text);
-juce::String contradictoryBriefWarning(int change, bool preserveGroove,
-                                       bool preserveMelody, bool preserveTimbre);

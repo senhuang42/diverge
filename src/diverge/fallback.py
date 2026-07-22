@@ -42,9 +42,9 @@ def lock_safe_variations(
 ) -> list[FallbackVariation]:
     """Create bounded source-derived options before resorting to transparent gain variants.
 
-    These candidates still pass through the normal quality and Preserve gates. The final gain
-    variants deliberately keep the source structure intact, making the requested result count
-    deterministic even when the generative pool misses every active lock.
+    These candidates still pass through the normal quality and optional similarity gates. The
+    final gain variants deliberately keep the source structure intact, making the requested result
+    count deterministic even when the generative pool misses every active compatibility constraint.
     """
     base = _fit_and_normalize(source, samples)
     if not base.size or float(np.sqrt(np.mean(base**2))) < 1e-4:

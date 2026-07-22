@@ -110,7 +110,6 @@ vision:
 - **Favourite** — a doubled ring.
 - **Exported** — a doubled ring with an arrow leaving the sheet.
 - **Passed** — the frame struck corner to corner and stepped back to 40% ink, never removed.
-- **Preserve lock held** — a filled, ticked square; released is an open square.
 
 ## Motion
 

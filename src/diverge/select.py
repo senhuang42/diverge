@@ -125,8 +125,8 @@ def select_candidates(
             opinion,
             configured_max_taste_weight,
         )
-    # Preserve is a hard contract. A sparse valid pool must produce a smaller set instead of
-    # quietly weakening the threshold to fill every result slot.
+    # Compatibility constraints are hard gates when supplied by legacy or evaluation callers. A
+    # sparse valid pool must produce a smaller set instead of quietly weakening the threshold.
     survivors = [c for c in candidates if c.lock_score >= lock_threshold]
     lam = spread_lambda(spread)
     remaining = sorted(survivors, key=lambda c: (-c.utility, c.index))

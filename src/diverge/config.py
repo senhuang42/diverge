@@ -15,7 +15,7 @@ class RunConfig:
     transform: int = 45
     spread: int = 60
     drift: int = 35
-    locks: set[str] = field(default_factory=lambda: {"groove"})
+    locks: set[str] = field(default_factory=set)
     n_return: int = 8
     n_oversample: int = 32
     duration_s: float | None = None

@@ -45,28 +45,27 @@ For a host-free smoke test, open
 ## Host workflow
 
 1. Drop, record, or choose a source; optionally add a reference or short direction.
-2. Set **Change**, then choose which of Groove, Melody, and Timbre to preserve.
+2. Set **Change** to choose how far the variations should move from the source.
 3. Select **Create 8 variations**. The job continues if the editor closes.
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical
    position and replaces rather than layers over live input. The first audition waits for the next
-   host beat when transport facts are available; switches remain immediate and position-matched.
+   host beat when transport facts are available; switches remain immediate and restart the newly
+   selected sample from its beginning.
    A card explains a measured, batch-distinct difference when the evidence is strong enough;
    otherwise it stays quiet.
 5. Drag a selected card or choose **Use in DAW**. Diverge first retains a content-addressed object
    and hands the DAW a stable named export under the user's application-support library. Branch
    sources are retained there too, with append-only provenance events. Branch with **More like
    this** or recover a prior batch from **Recent**. Recent restores the saved source, reference,
-   direction, Change, Preserve settings, and choices.
+   direction, Change setting, and choices.
 
-Quality, Preserve, and pairwise uniqueness checks are hard gates. The plugin generates a
-16-candidate model pool, retries acoustically collapsed batches with wider diffusion, and selects
-up to eight distinct results. If eight do not pass, it presents the valid subset instead of filling
-slots with duplicates or silently lowering the requested Preserve threshold.
-Each seed receives a distinct brief that avoids contradicting active Preserve locks. At Change 70
-or above, generation uses the model's full sampler; decoded peaks are normalized before quality
-validation, and selection explicitly rewards the requested distance from the source.
-High Change with all three Preserve locks shows a warning but remains available to try.
+Quality and pairwise uniqueness checks are hard gates. The plugin generates a 16-candidate model
+pool, retries acoustically collapsed batches with wider diffusion, and selects up to eight distinct
+results. If eight do not pass, it presents the valid subset instead of filling slots with
+duplicates. Each seed receives a distinct brief. At Change 70 or above, generation uses the
+model's full sampler; decoded peaks are normalized before quality validation, and selection
+explicitly rewards the requested distance from the source.
 Choose a 1, 2, 4, or 8-bar source region for imported or recorded audio. In a host, recording arms
 until the next bar and then stops at the requested length. Mono/stereo layout, sample rate, tempo,
 and time signature are preserved as host facts in the run config. Host-free region lengths and

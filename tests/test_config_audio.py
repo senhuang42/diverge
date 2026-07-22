@@ -72,6 +72,7 @@ def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
     assert fast.n_oversample == 16
     assert overridden.n_oversample == 24
     assert fast.duration_s is None
+    assert fast.locks == set()
 
 
 def test_audio_preserves_mono_and_resamples_float(tmp_path: Path) -> None:
