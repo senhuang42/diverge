@@ -75,7 +75,7 @@ restored with the plugin instance. Rapid taste updates are queued and learned lo
 the editor preserves an active job; destroying the plugin instance cleanly cancels its child process.
 
 For deterministic UI review without running models, set `DIVERGE_UI_FIXTURE` to `empty`,
-`ready`, `generating`, `results`, `recent`, `settings`, or `error` before opening the Standalone
-build. The experimental `map` fixture remains available for comparative testing. Set
+`ready`, `generating`, `results`, `brief-results`, `recent`, `settings`, or `error` before opening
+the Standalone build. The experimental `map` fixture remains available for comparative testing. Set
 `DIVERGE_UI_SNAPSHOT=/path/to/out.png` to write a PNG about a second after launch and quit, and
 `DIVERGE_REDUCED_MOTION=1` to disable animation.

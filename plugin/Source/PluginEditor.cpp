@@ -272,7 +272,8 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         return true;
     }
     const auto fixture = WorkflowFixtures::make(
-        (fixtureMode == "results" || fixtureMode == "recent" || fixtureMode == "map")
+        (fixtureMode == "results" || fixtureMode == "brief-results"
+         || fixtureMode == "recent" || fixtureMode == "map")
             ? WorkflowViewState::results
         : fixtureMode == "generating" ? WorkflowViewState::generating
         : fixtureMode == "error" ? WorkflowViewState::recoverableError
@@ -302,7 +303,8 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         setSettingsVisible(true);
         setAdvancedVisible(true);
     }
-    else if (fixtureMode == "results" || fixtureMode == "recent" || fixtureMode == "map")
+    else if (fixtureMode == "results" || fixtureMode == "brief-results"
+             || fixtureMode == "recent" || fixtureMode == "map")
     {
         auto run = juce::File(juce::SystemStats::getEnvironmentVariable("DIVERGE_FIXTURE_RUN", {}));
         if (!run.isDirectory())
@@ -317,6 +319,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
                 if (candidate.getChildFile("manifest.json").existsAsFile()) { run = candidate; break; }
         }
         if (run.isDirectory()) loadRun(run);
+        if (fixtureMode == "brief-results") setPrepareVisible(true);
         if (fixtureMode == "recent") setRecentVisible(true);
         if (fixtureMode == "map")
         {
@@ -356,7 +359,8 @@ void DivergeAudioProcessorEditor::configureUi()
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
              &changeSection, &changeSlider, &familiarLabel, &wildLabel,
-             &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton, &cancelButton,
+             &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton,
+             &viewResultsButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &newButton,
              &tryMoreButton,
              &map, &selectedTitle, &candidateDetail, &abButton, &passButton, &keepButton, &favoriteButton,
@@ -439,6 +443,8 @@ void DivergeAudioProcessorEditor::configureUi()
     generateButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::exploration);
     generateButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     generateButton.onClick = [this] { startGeneration(); };
+    viewResultsButton.onClick = [this] { setPrepareVisible(false); };
+    viewResultsButton.setTooltip("Return to the current variations without generating again");
     cancelButton.onClick = [this] { audioProcessor.generation().cancel(); };
     cancelButton.setVisible(false);
     configureSupportingLabel(progressLabel, "Ready when you are", juce::Justification::centred);
@@ -905,7 +911,17 @@ void DivergeAudioProcessorEditor::resized()
         timbreLock.setBounds(locks);
         area.removeFromTop(18);
         auto action = area.removeFromTop(52);
-        generateButton.setBounds(action.withSizeKeepingCentre(250, 52));
+        if (viewResultsButton.isVisible())
+        {
+            auto actions = action.withSizeKeepingCentre(452, 52);
+            viewResultsButton.setBounds(actions.removeFromLeft(190));
+            actions.removeFromLeft(12);
+            generateButton.setBounds(actions);
+        }
+        else
+        {
+            generateButton.setBounds(action.withSizeKeepingCentre(250, 52));
+        }
         cancelButton.setBounds(action.removeFromRight(100).reduced(4, 6));
         progressLabel.setBounds(area.removeFromTop(38));
         privacyLabel.setBounds(area.removeFromTop(24));
@@ -972,6 +988,7 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
              &changeSection, &changeSlider, &familiarLabel, &wildLabel, &preserveSection,
              &grooveLock, &melodyLock, &timbreLock, &generateButton, &progressLabel, &privacyLabel })
         component->setVisible(visible);
+    viewResultsButton.setVisible(visible && loadedRun.isValid() && !loadedRun.candidates.empty());
     refreshSlotCard(1);
     styleEditor.setVisible(visible && showDirectionText);
     cancelButton.setVisible(visible && generating);
@@ -1332,6 +1349,9 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
                   + " VALID"
             : juce::String(loadedRun.returnedCount) + " VARIATIONS",
         juce::dontSendNotification);
+    viewResultsButton.setButtonText(
+        "View " + juce::String(loadedRun.returnedCount)
+            + (loadedRun.returnedCount == 1 ? " variation" : " variations"));
     totalChoiceCount = loadedRun.tasteObservations;
     tasteConfidence = loadedRun.tasteConfidence;
     opinionSlider.setValue(loadedRun.opinion, juce::dontSendNotification);
