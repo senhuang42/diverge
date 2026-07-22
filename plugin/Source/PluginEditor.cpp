@@ -275,7 +275,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
     }
     const auto fixture = WorkflowFixtures::make(
         (fixtureMode == "results" || fixtureMode == "brief-results"
-         || fixtureMode == "recent" || fixtureMode == "map")
+         || fixtureMode == "recent" || fixtureMode == "map" || fixtureMode == "marked")
             ? WorkflowViewState::results
         : fixtureMode == "generating" ? WorkflowViewState::generating
         : fixtureMode == "error" ? WorkflowViewState::recoverableError
@@ -306,7 +306,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         setAdvancedVisible(true);
     }
     else if (fixtureMode == "results" || fixtureMode == "brief-results"
-             || fixtureMode == "recent" || fixtureMode == "map")
+             || fixtureMode == "recent" || fixtureMode == "map" || fixtureMode == "marked")
     {
         auto run = juce::File(juce::SystemStats::getEnvironmentVariable("DIVERGE_FIXTURE_RUN", {}));
         if (!run.isDirectory())
@@ -321,6 +321,16 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
                 if (candidate.getChildFile("manifest.json").existsAsFile()) { run = candidate; break; }
         }
         if (run.isDirectory()) loadRun(run);
+        if (fixtureMode == "marked")
+        {
+            // A sheet part-way through being judged. The grease-pencil marks are the signature
+            // of this design, so there has to be a fixture that renders every one of them.
+            workflow.decisions = { CandidateDecision::keep,     CandidateDecision::pass,
+                                   CandidateDecision::none,     CandidateDecision::favorite,
+                                   CandidateDecision::pass,     CandidateDecision::none,
+                                   CandidateDecision::exported, CandidateDecision::keep };
+            updateTransportUi();
+        }
         if (fixtureMode == "brief-results") setPrepareVisible(true);
         if (fixtureMode == "recent") setRecentVisible(true);
         if (fixtureMode == "map")
@@ -378,9 +388,9 @@ void DivergeAudioProcessorEditor::configureUi()
     toast.setVisible(false);
 
     brandLabel.setText("DIVERGE", juce::dontSendNotification);
-    brandLabel.setFont(DivergeTheme::display(20.0f));
+    brandLabel.setFont(DivergeTheme::display(DivergeTheme::Type::title + 2.0f));
     promiseLabel.setText("Recognizable where you choose. Different where it matters.", juce::dontSendNotification);
-    promiseLabel.setFont(DivergeTheme::body(12.5f));
+    promiseLabel.setFont(DivergeTheme::body(DivergeTheme::Type::meta));
     promiseLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     // A standing fact about where the audio lives, not a decision anybody made, so it stays
     // off the accent entirely and reads as a quiet stamp.
@@ -466,8 +476,8 @@ void DivergeAudioProcessorEditor::configureUi()
     privacyLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
 
     briefButton.onClick = [this] { setPrepareVisible(true); };
-    resultsTitle.setText("8 VARIATIONS", juce::dontSendNotification);
-    resultsTitle.setFont(DivergeTheme::display(15.0f));
+    resultsTitle.setText("8 variations", juce::dontSendNotification);
+    resultsTitle.setFont(DivergeTheme::title(DivergeTheme::Type::title));
     newButton.onClick = [this] { createNew(); };
     tryMoreButton.onClick = [this]
     {
@@ -505,8 +515,9 @@ void DivergeAudioProcessorEditor::configureUi()
         };
     }
 
-    selectedTitle.setFont(DivergeTheme::monoBold(12.5f));
+    selectedTitle.setFont(DivergeTheme::monoBold(DivergeTheme::Type::title));
     configureSupportingLabel(candidateDetail, "Choose a variation to hear it");
+    candidateDetail.setFont(DivergeTheme::body(DivergeTheme::Type::body));
     abButton.onClick = [this]
     {
         if (selectedCandidate <= 0) return;
@@ -536,10 +547,12 @@ void DivergeAudioProcessorEditor::configureUi()
     dragButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
         button->setEnabled(false);
-    configureSupportingLabel(shortcutLabel, "SPACE play  /  ARROWS choose  /  A source  /  K keep  /  X pass  /  CMD-Z undo",
+    // The transport legend is a named kicker and one of the two places tracked caps are allowed.
+    // It sits at muted rather than dim so it actually clears contrast at this size.
+    configureSupportingLabel(shortcutLabel, "SPACE play    ARROWS choose    A source    K keep    X pass    CMD-Z undo",
                              juce::Justification::centredRight);
-    shortcutLabel.setFont(DivergeTheme::mono(10.0f));
-    shortcutLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
+    shortcutLabel.setFont(DivergeTheme::label(DivergeTheme::Type::caps - 0.5f));
+    shortcutLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     configureSupportingLabel(comparisonLabel, "Which direction is more you?");
     comparisonLabel.setFont(DivergeTheme::bodyBold(12.5f));
     comparisonAButton.onClick = [this] { recordComparison("prefer_a"); };
@@ -555,8 +568,8 @@ void DivergeAudioProcessorEditor::configureUi()
     recentPanel.setVisible(false);
     recentPanel.addAndMakeVisible(recentTitle);
     recentPanel.addAndMakeVisible(recentClose);
-    recentTitle.setText("RECENT RUNS", juce::dontSendNotification);
-    recentTitle.setFont(DivergeTheme::display(15.0f));
+    recentTitle.setText("Recent runs", juce::dontSendNotification);
+    recentTitle.setFont(DivergeTheme::title(DivergeTheme::Type::title));
     recentClose.onClick = [this] { setRecentVisible(false); };
     for (int index = 0; index < static_cast<int>(recentCards.size()); ++index)
     {
@@ -613,8 +626,8 @@ void DivergeAudioProcessorEditor::configureUi()
              &pythonLabel, &pythonEditor, &modelsLabel, &modelsEditor, &libraryLabel, &libraryEditor,
              &choicesLabel, &choicesEditor, &outputLabel, &outputEditor })
         settingsPanel.addAndMakeVisible(component);
-    settingsTitle.setText("SETTINGS", juce::dontSendNotification);
-    settingsTitle.setFont(DivergeTheme::display(17.0f));
+    settingsTitle.setText("Settings", juce::dontSendNotification);
+    settingsTitle.setFont(DivergeTheme::display(DivergeTheme::Type::display - 4.0f));
     configureSupportingLabel(settingsSubtitle, "Diverge runs and learns entirely on this Mac.");
     settingsSubtitle.setColour(juce::Label::textColourId, DivergeTheme::dim);
     settingsClose.onClick = [this] { saveSettings(); setSettingsVisible(false); };
@@ -792,12 +805,19 @@ void DivergeAudioProcessorEditor::resized()
         renderBackground();
 
     scrim.setBounds(getLocalBounds());
-    const auto toastY = (!showPrepare && !settingsPanel.isVisible())
-                            ? getHeight() - 24 - 154 - 64
-                            : getHeight() - 84;
-    toast.setBounds(getLocalBounds()
-                        .withSizeKeepingCentre(juce::jmin(620, getWidth() - 96), 54)
-                        .withY(toastY));
+    if (!showPrepare && !settingsPanel.isVisible())
+    {
+        // On the sheet, status takes the empty right half of the toolbar rather than floating
+        // over the takes. A notice that covers the work is worse than no notice.
+        const auto width = juce::jmin(560, getWidth() - 320);
+        toast.setBounds(getWidth() - 24 - width, 88, width, 42);
+    }
+    else
+    {
+        toast.setBounds(getLocalBounds()
+                            .withSizeKeepingCentre(juce::jmin(620, getWidth() - 96), 54)
+                            .withY(getHeight() - 84));
+    }
 
     auto area = getLocalBounds().reduced(24);
     auto header = area.removeFromTop(40);
@@ -956,12 +976,13 @@ void DivergeAudioProcessorEditor::resized()
     else
     {
         auto toolbar = area.removeFromTop(42);
-        briefButton.setBounds(toolbar.removeFromLeft(88));
+        briefButton.setBounds(toolbar.removeFromLeft(84).reduced(0, 4));
+        toolbar.removeFromLeft(14);
         resultsTitle.setBounds(toolbar.removeFromLeft(190));
-        area.removeFromTop(10);
+        area.removeFromTop(14);
 
         auto selected = area.removeFromBottom(106);
-        area.removeFromBottom(10);
+        area.removeFromBottom(16);
         map.setBounds(area);
         if (!showMap)
         {
@@ -970,7 +991,7 @@ void DivergeAudioProcessorEditor::resized()
             for (int index = 0; index < 8; ++index)
                 if (candidateCards[static_cast<size_t>(index)]->isVisible()) visible.push_back(index);
             const auto rows = juce::jmax(1, (static_cast<int>(visible.size()) + columns - 1) / columns);
-            const auto gap = 8;
+            const auto gap = 12;
             const auto cardWidth = (area.getWidth() - gap * (columns - 1)) / columns;
             const auto cardHeight = (area.getHeight() - gap * (rows - 1)) / rows;
             for (int position = 0; position < static_cast<int>(visible.size()); ++position)
@@ -983,14 +1004,16 @@ void DivergeAudioProcessorEditor::resized()
             }
         }
 
-        auto detail = selected.removeFromTop(44);
-        selectedTitle.setBounds(detail.removeFromLeft(160));
+        auto detail = selected.removeFromTop(40);
+        selectedTitle.setBounds(detail.removeFromLeft(52));
+        detail.removeFromLeft(10);
         candidateDetail.setBounds(detail);
+        selected.removeFromTop(6);
         auto actions = selected.removeFromTop(48);
-        abButton.setBounds(actions.removeFromLeft(100)); actions.removeFromLeft(6);
-        passButton.setBounds(actions.removeFromLeft(74)); actions.removeFromLeft(6);
-        keepButton.setBounds(actions.removeFromLeft(74)); actions.removeFromLeft(6);
-        dragButton.setBounds(actions.removeFromRight(142)); actions.removeFromRight(6);
+        abButton.setBounds(actions.removeFromLeft(104)); actions.removeFromLeft(8);
+        passButton.setBounds(actions.removeFromLeft(78)); actions.removeFromLeft(8);
+        keepButton.setBounds(actions.removeFromLeft(78)); actions.removeFromLeft(8);
+        dragButton.setBounds(actions.removeFromRight(150)); actions.removeFromRight(12);
         shortcutLabel.setBounds(actions);
     }
 }
@@ -1012,8 +1035,9 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
              &sourceSection, sourceCard.get(), &recordButton, &captureLength,
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton,
-             &changeSection, &changeSlider, &familiarLabel, &wildLabel, &preserveSection,
-             &grooveLock, &melodyLock, &timbreLock, &generateButton, &progressLabel, &privacyLabel })
+             &changeSection, &changeSlider, &changeValue, &familiarLabel, &wildLabel,
+             &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton,
+             &progressLabel, &privacyLabel })
         component->setVisible(visible);
     viewResultsButton.setVisible(visible && loadedRun.isValid() && !loadedRun.candidates.empty());
     refreshSlotCard(1);
@@ -1372,9 +1396,9 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     workflow.view = WorkflowViewState::results;
     resultsTitle.setText(
         loadedRun.shortfall > 0
-            ? juce::String(loadedRun.returnedCount) + " OF " + juce::String(loadedRun.requestedCount)
-                  + " VALID"
-            : juce::String(loadedRun.returnedCount) + " VARIATIONS",
+            ? juce::String(loadedRun.returnedCount) + " of " + juce::String(loadedRun.requestedCount)
+                  + " valid"
+            : juce::String(loadedRun.returnedCount) + " variations",
         juce::dontSendNotification);
     viewResultsButton.setButtonText(
         "View " + juce::String(loadedRun.returnedCount)
@@ -1394,7 +1418,7 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
         setPrepareVisible(false);
         candidateDetail.setText("No candidates met the quality and Preserve constraints",
                                 juce::dontSendNotification);
-        selectedTitle.setText("NO VALID RESULT", juce::dontSendNotification);
+        selectedTitle.setText("--", juce::dontSendNotification);
         for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
             button->setEnabled(false);
         showToast("No valid variations yet - Try more keeps the same constraints");
@@ -1559,7 +1583,9 @@ void DivergeAudioProcessorEditor::selectCandidate(int rank, bool playImmediately
     for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
         button->setEnabled(true);
     map.setSelectedRank(rank);
-    selectedTitle.setText("SELECTED  " + juce::String(rank).paddedLeft('0', 2), juce::dontSendNotification);
+    // The take number alone: the sheet already shows which frame is under the loupe, so the
+    // word "selected" was chrome restating what the layout says.
+    selectedTitle.setText(juce::String(rank).paddedLeft('0', 2), juce::dontSendNotification);
     candidateDetail.setText(candidate->explanation, juce::dontSendNotification);
     if (playImmediately) togglePreview(candidate->file, rank);
     updateTransportUi();

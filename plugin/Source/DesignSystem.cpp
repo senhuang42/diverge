@@ -487,42 +487,47 @@ void WaveformCard::paintMark(juce::Graphics& g, juce::Rectangle<float> bounds) c
 
     if (decision == CandidateDecision::pass)
     {
-        // A crossed-out frame, struck corner to corner across the whole take.
-        auto strike = bounds.reduced(14.0f, 10.0f);
+        // A crossed-out frame, struck corner to corner. It stays clear of the frame's own rule
+        // so the strike reads as a mark laid on the take, not as damage to the layout.
+        auto strike = bounds.reduced(26.0f, 20.0f);
         juce::Path cross;
         cross.startNewSubPath(strike.getX(), strike.getY() + 2.0f);
         cross.lineTo(strike.getRight(), strike.getBottom() - 3.0f);
         cross.startNewSubPath(strike.getRight() - 2.0f, strike.getY());
         cross.lineTo(strike.getX() + 1.0f, strike.getBottom() - 1.0f);
-        g.setColour(DivergeTheme::exploration.withAlpha(0.55f));
+        g.setColour(DivergeTheme::exploration.withAlpha(0.5f));
         g.strokePath(cross, stroke);
         return;
     }
 
-    // Keep, favourite, and exported are all circled; the ring count says how far it went.
-    auto ring = juce::Rectangle<float>(30.0f, 24.0f)
-                    .withCentre({ bounds.getRight() - 27.0f, bounds.getY() + 20.0f });
+    // Keep, favourite, and exported are all circled; the ring count says how far it went. The
+    // exported arrow needs its own room, so the ring shifts left when one is coming.
+    const auto leaving = decision == CandidateDecision::exported;
+    auto ring = juce::Rectangle<float>(30.0f, 23.0f)
+                    .withCentre({ bounds.getRight() - (leaving ? 48.0f : 34.0f),
+                                  bounds.getY() + 30.0f });
     juce::Path loop;
     loop.addEllipse(ring);
     g.setColour(DivergeTheme::exploration);
     g.strokePath(loop, stroke);
-    if (decision == CandidateDecision::favorite || decision == CandidateDecision::exported)
+    if (decision == CandidateDecision::favorite || leaving)
     {
         juce::Path second;
-        second.addEllipse(ring.expanded(3.5f, 3.0f).translated(1.0f, -0.5f));
+        second.addEllipse(ring.expanded(4.0f, 3.5f).translated(1.0f, -0.5f));
         g.strokePath(second, juce::PathStrokeType(1.8f));
     }
-    if (decision == CandidateDecision::exported)
+    if (leaving)
     {
         // An arrow off the edge of the sheet: this take left for the DAW.
         juce::Path arrow;
-        const auto tip = ring.getRight() + 12.0f;
-        arrow.startNewSubPath(ring.getRight() + 2.0f, ring.getCentreY());
+        const auto start = ring.getRight() + 8.0f;
+        const auto tip = start + 13.0f;
+        arrow.startNewSubPath(start, ring.getCentreY());
         arrow.lineTo(tip, ring.getCentreY());
-        arrow.startNewSubPath(tip - 4.5f, ring.getCentreY() - 4.0f);
+        arrow.startNewSubPath(tip - 5.0f, ring.getCentreY() - 4.5f);
         arrow.lineTo(tip, ring.getCentreY());
-        arrow.lineTo(tip - 4.5f, ring.getCentreY() + 4.0f);
-        g.strokePath(arrow, juce::PathStrokeType(1.8f, juce::PathStrokeType::curved,
+        arrow.lineTo(tip - 5.0f, ring.getCentreY() + 4.5f);
+        g.strokePath(arrow, juce::PathStrokeType(1.9f, juce::PathStrokeType::curved,
                                                  juce::PathStrokeType::rounded));
     }
 }
