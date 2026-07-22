@@ -20,7 +20,7 @@ from .features import (
     tonal_coherence,
     tonal_coherence_chroma,
 )
-from .generator import GeneratorProtocol, transform_to_noise
+from .generator import GeneratorProtocol, fit_source_duration, transform_to_noise
 from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
 from .novelty import novelty_scores, recent_kept_embeddings, self_novelty_scores
@@ -68,6 +68,24 @@ def _direction_descriptor_hint(
         descriptors.append("compressed")
     component_weights = {"embedding": 0.40, "rhythm": 0.30, "melody": 0.30}
     return ", ".join(descriptors), component_weights
+
+
+def _conditioning_tonal_score(
+    source_report: dict[str, float | str | bool],
+    reference_reports: list[dict[str, float | str | bool]],
+    reference_weights: list[float],
+    reference_mix: int,
+) -> float:
+    """Estimate expected tonality at the actual audio-conditioning blend point."""
+    source_score = float(source_report["score"])
+    if not reference_reports:
+        return source_score
+    weighted_reference = sum(
+        weight * float(report["score"])
+        for weight, report in zip(reference_weights, reference_reports, strict=True)
+    )
+    mix = float(np.clip(reference_mix, 0, 100) / 100)
+    return float((1 - mix) * source_score + mix * weighted_reference)
 
 
 def run_session(
@@ -118,9 +136,19 @@ def run_session(
             )
     source_spectral, source_temporal = audio_descriptors(source, sr)
     source_tonal_coherence = tonal_coherence(source, sr)
+    analysis_samples = round(duration_s * sr)
+    reference_tonal_coherence = [
+        tonal_coherence(fit_source_duration(audio, analysis_samples), sr)
+        for audio in reference_audio
+    ]
+    conditioning_tonal_score = _conditioning_tonal_score(
+        source_tonal_coherence,
+        reference_tonal_coherence,
+        [weight for _, weight in config.references],
+        config.reference_mix,
+    )
     tonal_gate_enabled = bool(
-        source_tonal_coherence["applicable"]
-        and float(source_tonal_coherence["score"]) >= config.tonal_coherence_threshold
+        conditioning_tonal_score >= config.tonal_coherence_threshold
     )
     active_coherence_threshold = (
         config.tonal_coherence_threshold if tonal_gate_enabled else 0.0
@@ -397,7 +425,7 @@ def run_session(
         for candidate in candidates
     )
     missing = max(0, config.n_return - valid_model_count)
-    if config.guarantee_results and missing:
+    if config.guarantee_results and missing and config.locks and not config.references:
         fallback = lock_safe_variations(
             source,
             sr,
@@ -540,6 +568,7 @@ def run_session(
             "descriptors": source_descriptors,
             "tonal_coherence": source_tonal_coherence,
             "tonal_gate_enabled": tonal_gate_enabled,
+            "conditioning_tonal_score": round(conditioning_tonal_score, 6),
         },
         "reference_influence": {
             "native_model_audio_direction": bool(
@@ -557,6 +586,7 @@ def run_session(
             ),
             "selection_component_weights": reference_component_weights,
             "descriptor_hint": direction_hint,
+            "tonal_coherence": reference_tonal_coherence,
         },
         "calibration": {
             "transform_noise": {

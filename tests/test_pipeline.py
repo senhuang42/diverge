@@ -7,7 +7,7 @@ from diverge.audio_io import load_audio, save_audio
 from diverge.config import RunConfig
 from diverge.embed import Embedder
 from diverge.generator import MockGenerator
-from diverge.session import run_session
+from diverge.session import _conditioning_tonal_score, run_session
 
 DATA = Path(__file__).parents[1] / "data"
 
@@ -21,6 +21,16 @@ class SpectralBackend:
             output[row] = [np.mean(chunk) for chunk in chunks]
             output[row, row % 512] += 1e-4
         return output
+
+
+def test_conditioning_tonality_follows_reference_mix() -> None:
+    source = {"score": 0.8}
+    references = [{"score": 0.2}, {"score": 0.4}]
+    weights = [0.75, 0.25]
+
+    assert _conditioning_tonal_score(source, references, weights, 0) == 0.8
+    assert _conditioning_tonal_score(source, references, weights, 50) == 0.525
+    assert _conditioning_tonal_score(source, references, weights, 100) == 0.25
 
 
 def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
@@ -115,6 +125,28 @@ def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> No
     assert len(list(run_dir.glob("cand_*.wav"))) == 2
     assert all(candidate["locks"] == {} for candidate in manifest["candidates"])
     assert len({candidate["change_fit"] for candidate in manifest["candidates"]}) > 1
+
+
+def test_percussive_reference_disables_source_derived_tonal_gate(tmp_path: Path) -> None:
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[(DATA / "noise.wav", 1)],
+        reference_mix=100,
+        n_return=2,
+        n_oversample=3,
+        duration_s=0.25,
+        output_dir=tmp_path / "runs",
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+
+    run_dir = run_session(config, MockGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+
+    assert manifest["source_analysis"]["tonal_gate_enabled"] is False
+    assert manifest["selection"]["tonal_coherence_threshold"] == 0.0
+    assert manifest["selection"]["coherence_rejected_count"] == 0
 
 
 def test_explicit_duration_crops_the_source_region_before_generation(tmp_path: Path) -> None:
@@ -282,3 +314,35 @@ def test_guaranteed_results_do_not_fill_slots_with_gain_duplicates(tmp_path: Pat
     assert manifest["selection"]["fallback_selected_count"] == 1
     assert all(item["origin"] == "lock_safe_fallback" for item in manifest["candidates"])
     assert len(list(run_dir.glob("cand_*.wav"))) == 1
+
+
+def test_reference_run_is_never_padded_with_source_only_fallbacks(tmp_path: Path) -> None:
+    class SilentGenerator:
+        emits_progress = False
+
+        def generate(
+            self, source, sr, style_embedding, style_text_hint, transform, duration_s, seed, n
+        ):
+            del source, style_embedding, style_text_hint, transform, seed
+            return [np.zeros((2, round(duration_s * sr)), dtype=np.float32) for _ in range(n)]
+
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[(DATA / "ref_a.wav", 1)],
+        reference_mix=100,
+        n_return=2,
+        n_oversample=2,
+        output_dir=tmp_path / "runs",
+        locks={"groove"},
+        guarantee_results=True,
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+
+    run_dir = run_session(config, SilentGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+
+    assert manifest["selection"]["returned_count"] == 0
+    assert manifest["selection"]["fallback_pool_count"] == 0
+    assert manifest["selection"]["fallback_selected_count"] == 0
