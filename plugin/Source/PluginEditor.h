@@ -143,6 +143,7 @@ private:
     juce::TextButton addDirectionButton { "+ Text direction" };
     juce::TextEditor styleEditor;
     juce::Slider changeSlider;
+    juce::Label changeValue;
     juce::Label familiarLabel;
     juce::Label wildLabel;
     juce::ToggleButton grooveLock { "Groove" };

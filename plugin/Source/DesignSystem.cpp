@@ -619,7 +619,10 @@ void WaveformCard::paint(juce::Graphics& g)
     if (thumbnail.getTotalLength() > 0.0)
     {
         // The take is drawn in graphite; the part already heard is developed up to paper white.
-        g.setColour((selected ? DivergeTheme::muted : DivergeTheme::dim).withMultipliedAlpha(ink));
+        // The waveform is the subject of the whole surface, so it clears text contrast rather
+        // than sitting back as texture.
+        g.setColour((selected ? DivergeTheme::muted.brighter(0.18f) : DivergeTheme::muted)
+                        .withMultipliedAlpha(ink));
         thumbnail.drawChannels(g, waveform, 0.0, thumbnail.getTotalLength(), 0.95f);
         const auto playheadX = waveform.getX()
                                + static_cast<int>(playbackProgress * waveform.getWidth());

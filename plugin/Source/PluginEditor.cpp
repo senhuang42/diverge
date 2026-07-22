@@ -26,18 +26,20 @@ CandidateDecision tasteActionFromLabel(const juce::String& label)
     return CandidateDecision::keep;
 }
 
+// Section headings are sentence case at title weight. Tracked caps over every section is
+// grammar nobody chose; proximity and one strong heading do the grouping instead.
 void configureSectionLabel(juce::Label& label, const juce::String& text)
 {
     label.setText(text, juce::dontSendNotification);
-    label.setFont(DivergeTheme::label(10.5f));
-    label.setColour(juce::Label::textColourId, DivergeTheme::muted);
+    label.setFont(DivergeTheme::title(DivergeTheme::Type::title));
+    label.setColour(juce::Label::textColourId, DivergeTheme::text);
 }
 
 void configureSupportingLabel(juce::Label& label, const juce::String& text,
                               juce::Justification justification = juce::Justification::centredLeft)
 {
     label.setText(text, juce::dontSendNotification);
-    label.setFont(DivergeTheme::body(12.5f));
+    label.setFont(DivergeTheme::body(DivergeTheme::Type::meta));
     label.setColour(juce::Label::textColourId, DivergeTheme::muted);
     label.setJustificationType(justification);
 }
@@ -358,7 +360,7 @@ void DivergeAudioProcessorEditor::configureUi()
              &sourceSection, sourceCard.get(), &recordButton, &captureLength,
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
-             &changeSection, &changeSlider, &familiarLabel, &wildLabel,
+             &changeSection, &changeSlider, &changeValue, &familiarLabel, &wildLabel,
              &preserveSection, &grooveLock, &melodyLock, &timbreLock, &generateButton,
              &viewResultsButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &newButton,
@@ -380,16 +382,18 @@ void DivergeAudioProcessorEditor::configureUi()
     promiseLabel.setText("Recognizable where you choose. Different where it matters.", juce::dontSendNotification);
     promiseLabel.setFont(DivergeTheme::body(12.5f));
     promiseLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
+    // A standing fact about where the audio lives, not a decision anybody made, so it stays
+    // off the accent entirely and reads as a quiet stamp.
     localBadge.setText("LOCAL", juce::dontSendNotification);
-    localBadge.setFont(DivergeTheme::monoBold(10.0f));
+    localBadge.setFont(DivergeTheme::label(DivergeTheme::Type::caps));
     localBadge.setJustificationType(juce::Justification::centred);
-    localBadge.setColour(juce::Label::textColourId, DivergeTheme::exploration);
+    localBadge.setColour(juce::Label::textColourId, DivergeTheme::muted);
     settingsButton.setButtonText("...");
 
-    configureSectionLabel(sourceSection, "SOURCE");
-    configureSectionLabel(directionSection, "DIRECTION  /  OPTIONAL");
-    configureSectionLabel(changeSection, "CHANGE");
-    configureSectionLabel(preserveSection, "PRESERVE");
+    configureSectionLabel(sourceSection, "Source");
+    configureSectionLabel(directionSection, "Reference");
+    configureSectionLabel(changeSection, "Change");
+    configureSectionLabel(preserveSection, "Preserve");
     refreshSlotCard(0);
     refreshSlotCard(1);
     sourceCard->onChoose = [this] { chooseAudio(0); };
@@ -431,11 +435,20 @@ void DivergeAudioProcessorEditor::configureUi()
     changeSlider.setRange(0.0, 100.0, 1.0);
     changeSlider.setValue(45.0);
     changeSlider.setTooltip("How far each result may move from the source");
-    configureSupportingLabel(familiarLabel, "FAMILIAR");
-    familiarLabel.setFont(DivergeTheme::label(9.5f));
+    // The amount is a measurement, so it gets the monospace and enough size to be read from
+    // across the room rather than hunted for under the handle.
+    changeSlider.onValueChange = [this]
+    {
+        changeValue.setText(juce::String(static_cast<int>(changeSlider.getValue())),
+                            juce::dontSendNotification);
+    };
+    changeValue.setText("45", juce::dontSendNotification);
+    changeValue.setFont(DivergeTheme::monoBold(DivergeTheme::Type::display));
+    changeValue.setColour(juce::Label::textColourId, DivergeTheme::text);
+    changeValue.setJustificationType(juce::Justification::centredRight);
+    configureSupportingLabel(familiarLabel, "Familiar");
     familiarLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
-    configureSupportingLabel(wildLabel, "UNRECOGNIZABLE", juce::Justification::centredRight);
-    wildLabel.setFont(DivergeTheme::label(9.5f));
+    configureSupportingLabel(wildLabel, "Unrecognizable", juce::Justification::centredRight);
     wildLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
     grooveLock.setToggleState(true, juce::dontSendNotification);
     for (auto* lock : { &grooveLock, &melodyLock, &timbreLock }) lock->setClickingTogglesState(true);
@@ -680,24 +693,35 @@ void DivergeAudioProcessorEditor::paint(juce::Graphics& g)
     if (backgroundImage.isValid()) g.drawImageAt(backgroundImage, 0, 0);
     else g.fillAll(DivergeTheme::canvas);
 
-    // Brand mark: three strokes diverging from one origin.
+    // Brand mark: a strip of four frames with the third one circled. The product in one glyph,
+    // drawn in the sheet's own grammar rather than in a shape borrowed from elsewhere.
     {
-        const juce::Point<float> origin(26.0f, 44.0f);
-        g.setColour(DivergeTheme::exploration);
-        g.drawLine({ origin, { 42.0f, 36.0f } }, 1.8f);
-        g.drawLine({ origin, { 44.0f, 44.0f } }, 1.8f);
-        g.drawLine({ origin, { 42.0f, 52.0f } }, 1.8f);
-        g.fillEllipse(juce::Rectangle<float>(4.5f, 4.5f).withCentre(origin));
+        const auto top = 34.0f;
+        const auto cell = 6.0f;
+        const auto gap = 4.0f;
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            const juce::Rectangle<float> cellBounds(
+                24.0f + static_cast<float>(frame) * (cell + gap), top, cell, 20.0f);
+            if (frame == 2)
+            {
+                g.setColour(DivergeTheme::exploration);
+                g.fillRect(cellBounds);
+            }
+            else
+            {
+                g.setColour(DivergeTheme::dim);
+                g.drawRect(cellBounds, 1.0f);
+            }
+        }
     }
-    g.setColour(DivergeTheme::hairline.withAlpha(0.9f));
+    g.setColour(DivergeTheme::hairline);
     g.fillRect(24, 71, getWidth() - 48, 1);
 
     if (localBadge.isVisible())
     {
         const auto pill = localBadge.getBounds().toFloat().reduced(0.0f, 9.0f);
-        g.setColour(DivergeTheme::explorationSoft.withAlpha(0.75f));
-        g.fillRoundedRectangle(pill, pill.getHeight() * 0.5f);
-        g.setColour(DivergeTheme::exploration.withAlpha(0.4f));
+        g.setColour(DivergeTheme::edge);
         g.drawRoundedRectangle(pill, pill.getHeight() * 0.5f, 1.0f);
     }
 
@@ -777,7 +801,7 @@ void DivergeAudioProcessorEditor::resized()
 
     auto area = getLocalBounds().reduced(24);
     auto header = area.removeFromTop(40);
-    header.removeFromLeft(26);
+    header.removeFromLeft(52);
     brandLabel.setBounds(header.removeFromLeft(126));
     promiseLabel.setBounds(header.removeFromLeft(446));
     settingsButton.setBounds(header.removeFromRight(44));
@@ -852,48 +876,70 @@ void DivergeAudioProcessorEditor::resized()
 
     if (showPrepare)
     {
-        const auto contentWidth = juce::jmin(940, area.getWidth());
+        // The brief reads as two groups with generous air between them and tight air inside:
+        // the material the producer brought, then the contract they are setting on it. The
+        // source is the subject of the screen, so it takes the height rather than sharing it
+        // evenly with everything else.
+        const auto contentWidth = juce::jmin(880, area.getWidth());
         area = area.withSizeKeepingCentre(contentWidth, area.getHeight());
-        sourceSection.setBounds(area.removeFromTop(22));
-        auto source = area.removeFromTop(104);
-        recordButton.setBounds(source.removeFromRight(112).reduced(10, 28));
-        captureLength.setBounds(source.removeFromRight(104).reduced(6, 28));
-        source.removeFromRight(8);
+        const auto extra = juce::jmax(0, area.getHeight() - 560);
+
+        sourceSection.setBounds(area.removeFromTop(24));
+        area.removeFromTop(10);
+        auto source = area.removeFromTop(juce::jmin(180, 124 + extra / 2));
+        auto capture = source.removeFromRight(116);
+        source.removeFromRight(10);
+        captureLength.setBounds(capture.removeFromTop(44));
+        capture.removeFromTop(8);
+        recordButton.setBounds(capture.removeFromTop(44));
         sourceCard->setBounds(source);
-        area.removeFromTop(14);
-        auto directionHeader = area.removeFromTop(30);
-        directionSection.setBounds(directionHeader.removeFromLeft(220));
-        addDirectionButton.setBounds(directionHeader.removeFromRight(132));
+
+        area.removeFromTop(28);
+        auto directionHeader = area.removeFromTop(26);
+        directionSection.setBounds(directionHeader.removeFromLeft(150));
+        addDirectionButton.setBounds(directionHeader.removeFromRight(126).reduced(0, 1));
         if (audioSlots[1].existsAsFile())
         {
             directionHeader.removeFromRight(6);
-            removeDirectionButton.setBounds(directionHeader.removeFromRight(82));
+            removeDirectionButton.setBounds(directionHeader.removeFromRight(80).reduced(0, 1));
             directionHeader.removeFromRight(6);
-            replaceDirectionButton.setBounds(directionHeader.removeFromRight(82));
+            replaceDirectionButton.setBounds(directionHeader.removeFromRight(80).reduced(0, 1));
         }
-        directionCard->setBounds(area.removeFromTop(84));
+        area.removeFromTop(10);
+        directionCard->setBounds(area.removeFromTop(juce::jmin(104, 76 + extra / 4)));
         if (showDirectionText)
         {
             area.removeFromTop(8);
             styleEditor.setBounds(area.removeFromTop(44));
         }
-        area.removeFromTop(18);
-        auto intent = area.removeFromTop(112);
-        auto change = intent.removeFromLeft((intent.getWidth() - 28) / 2);
-        intent.removeFromLeft(28);
-        changeSection.setBounds(change.removeFromTop(22));
-        auto endpoints = change.removeFromBottom(20);
+
+        area.removeFromTop(34);
+        auto intent = area.removeFromTop(118);
+        auto change = intent.removeFromLeft((intent.getWidth() - 40) / 2);
+        intent.removeFromLeft(40);
+        auto changeHeader = change.removeFromTop(30);
+        changeValue.setBounds(changeHeader.removeFromRight(70));
+        changeSection.setBounds(changeHeader);
+        change.removeFromTop(6);
+        auto endpoints = change.removeFromBottom(18);
         familiarLabel.setBounds(endpoints.removeFromLeft(endpoints.getWidth() / 2));
         wildLabel.setBounds(endpoints);
-        changeSlider.setBounds(change);
-        preserveSection.setBounds(intent.removeFromTop(22));
+        changeSlider.setBounds(change.removeFromTop(40));
+        preserveSection.setBounds(intent.removeFromTop(30));
+        intent.removeFromTop(12);
         auto locks = intent.removeFromTop(44);
         const auto lockWidth = (locks.getWidth() - 16) / 3;
         grooveLock.setBounds(locks.removeFromLeft(lockWidth)); locks.removeFromLeft(8);
         melodyLock.setBounds(locks.removeFromLeft(lockWidth)); locks.removeFromLeft(8);
         timbreLock.setBounds(locks);
-        area.removeFromTop(18);
-        auto action = area.removeFromTop(52);
+
+        // The action closes the screen from the bottom, so the brief never floats in a field
+        // of dead space when the window is tall.
+        auto footer = area.removeFromBottom(juce::jmin(area.getHeight(), 108));
+        privacyLabel.setBounds(footer.removeFromBottom(22));
+        progressLabel.setBounds(footer.removeFromBottom(26));
+        footer.removeFromBottom(6);
+        auto action = footer.removeFromBottom(52);
         if (viewResultsButton.isVisible())
         {
             auto actions = action.withSizeKeepingCentre(452, 52);
@@ -903,11 +949,9 @@ void DivergeAudioProcessorEditor::resized()
         }
         else
         {
-            generateButton.setBounds(action.withSizeKeepingCentre(250, 52));
+            generateButton.setBounds(action.withSizeKeepingCentre(268, 52));
         }
         cancelButton.setBounds(action.removeFromRight(100).reduced(4, 6));
-        progressLabel.setBounds(area.removeFromTop(38));
-        privacyLabel.setBounds(area.removeFromTop(24));
     }
     else
     {
