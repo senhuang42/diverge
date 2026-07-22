@@ -35,6 +35,19 @@ def test_preserve_threshold_is_never_relaxed_to_fill_the_set() -> None:
     assert result.requested_count == 2
 
 
+def test_preserve_threshold_can_return_an_empty_valid_subset() -> None:
+    candidates = [
+        _candidate(0, [1, 0], 1.0, lock=0.2),
+        _candidate(1, [0, 1], 0.9, lock=0.3),
+    ]
+
+    result = select_candidates(candidates, 2, spread=100, drift=0, lock_threshold=0.55)
+
+    assert result.selected == []
+    assert result.eligible_count == 0
+    assert result.requested_count == 2
+
+
 def test_drift_monotonically_prefers_novel_candidates() -> None:
     candidates = [
         _candidate(0, [1, 0], 0.5, novelty=0.0),

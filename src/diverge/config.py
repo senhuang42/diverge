@@ -108,7 +108,27 @@ class RunConfig:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> RunConfig:
-        return cls(**value)
+        # Plugin state is persisted through JUCE XML before being written as JSON. JUCE may
+        # restore numeric properties as strings, so normalize the external boundary before
+        # dataclass validation performs numeric comparisons.
+        normalized = dict(value)
+        for key in (
+            "transform",
+            "spread",
+            "drift",
+            "n_return",
+            "n_oversample",
+            "seed",
+            "generation_batch_size",
+            "opinion",
+            "parent_candidate",
+        ):
+            if normalized.get(key) is not None:
+                normalized[key] = int(normalized[key])
+        for key in ("duration_s", "lock_threshold", "self_novelty_weight"):
+            if normalized.get(key) is not None:
+                normalized[key] = float(normalized[key])
+        return cls(**normalized)
 
     @classmethod
     def from_json(cls, value: str) -> RunConfig:

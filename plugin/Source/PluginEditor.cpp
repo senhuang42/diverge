@@ -1217,7 +1217,9 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     if (parentRun.isNotEmpty())
     {
         object->setProperty("parent_run_id", parentRun);
-        object->setProperty("parent_candidate", audioProcessor.state().getProperty("pendingParentCandidate", 0));
+        object->setProperty(
+            "parent_candidate",
+            static_cast<int>(audioProcessor.state().getProperty("pendingParentCandidate", 0)));
     }
     const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
                           .getNonexistentChildFile("diverge-run", ".json");

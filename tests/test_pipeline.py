@@ -156,3 +156,37 @@ def test_source_duration_defaults_exactly_and_quality_failures_are_rejected(tmp_
     assert manifest["selection"]["can_try_more"] is True
     assert len(manifest["candidates"]) == 1
     assert manifest["candidates"][0]["quality"]["passed"] is True
+
+
+def test_all_rejected_candidates_write_a_recoverable_empty_run(tmp_path: Path) -> None:
+    class SilentGenerator:
+        emits_progress = False
+
+        def generate(
+            self, source, sr, style_embedding, style_text_hint, transform, duration_s, seed, n
+        ):
+            del source, style_embedding, style_text_hint, transform, seed
+            return [np.zeros((2, round(duration_s * sr)), dtype=np.float32) for _ in range(n)]
+
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[],
+        n_return=2,
+        n_oversample=2,
+        output_dir=tmp_path / "runs",
+        locks={"groove"},
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+
+    run_dir = run_session(config, SilentGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+
+    assert manifest["selection"]["returned_count"] == 0
+    assert manifest["selection"]["shortfall"] == 2
+    assert manifest["selection"]["can_try_more"] is True
+    assert manifest["candidates"] == []
+    assert json.loads((run_dir / "map.json").read_text()) == [
+        {"kind": "source", "path": str(DATA / "loop_a.wav"), "x": 0.0, "y": 0.0}
+    ]

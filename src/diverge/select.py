@@ -100,6 +100,8 @@ def select_candidates(
     remaining = sorted(survivors, key=lambda c: (-c.utility, c.index))
     if allocate_roles and opinion is not None and n_return == 8 and len(remaining) >= 12:
         chosen = _role_selection(remaining, lam)
+    elif not remaining:
+        chosen = []
     elif lam == 0:
         chosen = remaining[:n_return]
     else:

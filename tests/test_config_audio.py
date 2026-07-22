@@ -41,6 +41,29 @@ def test_config_preserves_optional_branch_lineage(tmp_path: Path) -> None:
         RunConfig(source=source, references=[], parent_candidate=1)
 
 
+def test_config_normalizes_numeric_strings_from_persisted_plugin_state(tmp_path: Path) -> None:
+    config = RunConfig.from_dict(
+        {
+            "source": str(tmp_path / "source.wav"),
+            "references": [],
+            "transform": "80",
+            "spread": "60",
+            "drift": "0",
+            "n_return": "8",
+            "n_oversample": "16",
+            "generation_batch_size": "8",
+            "opinion": "50",
+            "lock_threshold": "0.55",
+            "parent_run_id": "20260714T000400.676948Z",
+            "parent_candidate": "5",
+        }
+    )
+
+    assert config.transform == 80
+    assert config.parent_candidate == 5
+    assert config.lock_threshold == 0.55
+
+
 def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
     fast = _config(_parser().parse_args(["run", "--source", "source.wav", "--fast"]))
     overridden = _config(
