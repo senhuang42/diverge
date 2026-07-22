@@ -46,7 +46,7 @@ For a host-free smoke test, open
 
 1. Drop, record, or choose a source; optionally add a reference or short direction.
 2. Set **Change**, then choose which of Groove, Melody, and Timbre to preserve.
-3. Select **Create up to 8 variations**. The job continues if the editor closes.
+3. Select **Create 8 variations**. The job continues if the editor closes.
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical
    position and replaces rather than layers over live input. The first audition waits for the next
@@ -59,8 +59,9 @@ For a host-free smoke test, open
    this** or recover a prior batch from **Recent**. Recent restores the saved source, reference,
    direction, Change, Preserve settings, and choices.
 
-Quality and Preserve checks are hard gates. If fewer than eight results pass, the grid shows only
-the valid subset. **Try more** runs another pool with the same constraints; it does not relax them.
+Quality and Preserve checks are hard gates. The plugin generates a fast model pool, validates it,
+then fills any missing slots with labeled, source-derived lock-safe treatments. It always presents
+eight results without silently lowering the requested Preserve threshold.
 High Change with all three Preserve locks shows a warning but remains available to try.
 Choose a 1, 2, 4, or 8-bar capture. In a host, recording arms until the next bar and then stops at
 the requested length. Mono/stereo layout, sample rate, tempo, and time signature are preserved as

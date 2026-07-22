@@ -190,3 +190,36 @@ def test_all_rejected_candidates_write_a_recoverable_empty_run(tmp_path: Path) -
     assert json.loads((run_dir / "map.json").read_text()) == [
         {"kind": "source", "path": str(DATA / "loop_a.wav"), "x": 0.0, "y": 0.0}
     ]
+
+
+def test_guaranteed_results_fill_all_slots_after_model_rejection(tmp_path: Path) -> None:
+    class SilentGenerator:
+        emits_progress = False
+
+        def generate(
+            self, source, sr, style_embedding, style_text_hint, transform, duration_s, seed, n
+        ):
+            del source, style_embedding, style_text_hint, transform, seed
+            return [np.zeros((2, round(duration_s * sr)), dtype=np.float32) for _ in range(n)]
+
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[],
+        n_return=8,
+        n_oversample=8,
+        output_dir=tmp_path / "runs",
+        locks={"groove", "melody", "timbre"},
+        guarantee_results=True,
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+
+    run_dir = run_session(config, SilentGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+
+    assert manifest["selection"]["returned_count"] == 8
+    assert manifest["selection"]["shortfall"] == 0
+    assert manifest["selection"]["fallback_selected_count"] == 8
+    assert all(item["origin"] == "lock_safe_fallback" for item in manifest["candidates"])
+    assert len(list(run_dir.glob("cand_*.wav"))) == 8

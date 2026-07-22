@@ -183,8 +183,9 @@ until producer testing demonstrates that constraint fidelity and curation save m
 - Return the first playable candidate progressively, then fill the curated set.
 - Generate an adaptive pool, run quality checks, enforce constraints, deduplicate, and select up
   to eight directions.
-- If eight valid results cannot be found within the generation budget, show the valid subset and
-  offer `Try more` or an explicit constraint relaxation.
+- If the model pool cannot supply eight valid results within the generation budget, fill the
+  remaining slots with clearly labeled source-derived treatments that pass the same constraints.
+  Never silently relax a Preserve threshold.
 - A job survives editor closure, project save/reopen, and recoverable backend failure.
 - Progress reports real stages and completed work; it does not invent an exact ETA.
 

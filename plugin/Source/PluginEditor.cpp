@@ -515,6 +515,8 @@ void DivergeAudioProcessorEditor::configureUi()
     keepButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     dragButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::exploration);
     dragButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
+    for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
+        button->setEnabled(false);
     configureSupportingLabel(shortcutLabel, "SPACE play  /  ARROWS choose  /  A source  /  K keep  /  X pass  /  CMD-Z undo",
                              juce::Justification::centredRight);
     shortcutLabel.setFont(DivergeTheme::mono(10.0f));
@@ -553,7 +555,36 @@ void DivergeAudioProcessorEditor::configureUi()
         };
     }
 
-    settingsButton.onClick = [this] { setSettingsVisible(true); };
+    settingsButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        menu.addItem(1, "Settings");
+        menu.addItem(2, "Recent runs");
+        menu.addItem(3, "New brief");
+        if (!showPrepare)
+        {
+            menu.addSeparator();
+            const auto hasSelection = selectedCandidate > 0;
+            menu.addItem(10, "Favorite selected", hasSelection);
+            menu.addItem(11, "More like selected", hasSelection);
+            menu.addItem(12, "Tighter next batch", hasSelection);
+            menu.addItem(13, "Wider next batch", hasSelection);
+        }
+        auto safeThis = juce::Component::SafePointer<DivergeAudioProcessorEditor>(this);
+        menu.showMenuAsync(
+            juce::PopupMenu::Options().withTargetComponent(&settingsButton),
+            [safeThis](int result)
+            {
+                if (safeThis == nullptr) return;
+                if (result == 1) safeThis->setSettingsVisible(true);
+                else if (result == 2) safeThis->setRecentVisible(true);
+                else if (result == 3) safeThis->createNew();
+                else if (result == 10) safeThis->recordDecision(CandidateDecision::favorite);
+                else if (result == 11) safeThis->branchFromSelected();
+                else if (result == 12) safeThis->adjustRange(-20);
+                else if (result == 13) safeThis->adjustRange(20);
+            });
+    };
     settingsPanel.setVisible(false);
     for (auto* component : std::initializer_list<juce::Component*> {
              &settingsTitle, &settingsSubtitle, &settingsClose, &studioStatus, &learningStatus,
@@ -883,14 +914,10 @@ void DivergeAudioProcessorEditor::resized()
     {
         auto toolbar = area.removeFromTop(42);
         briefButton.setBounds(toolbar.removeFromLeft(88));
-        resultsTitle.setBounds(toolbar.removeFromLeft(150));
-        tryMoreButton.setBounds(toolbar.removeFromLeft(92));
-        newButton.setBounds(toolbar.removeFromRight(110)); toolbar.removeFromRight(8);
-        recentButton.setBounds(toolbar.removeFromRight(76)); toolbar.removeFromRight(6);
-        keptButton.setBounds(toolbar.removeFromRight(68));
+        resultsTitle.setBounds(toolbar.removeFromLeft(190));
         area.removeFromTop(10);
 
-        auto selected = area.removeFromBottom(comparisonVisible ? 196 : 154);
+        auto selected = area.removeFromBottom(106);
         area.removeFromBottom(10);
         map.setBounds(area);
         if (!showMap)
@@ -920,22 +947,8 @@ void DivergeAudioProcessorEditor::resized()
         abButton.setBounds(actions.removeFromLeft(100)); actions.removeFromLeft(6);
         passButton.setBounds(actions.removeFromLeft(74)); actions.removeFromLeft(6);
         keepButton.setBounds(actions.removeFromLeft(74)); actions.removeFromLeft(6);
-        favoriteButton.setBounds(actions.removeFromLeft(108)); actions.removeFromLeft(12);
         dragButton.setBounds(actions.removeFromRight(142)); actions.removeFromRight(6);
-        branchButton.setBounds(actions.removeFromRight(128));
-        auto secondary = selected.removeFromTop(38);
-        tighterButton.setBounds(secondary.removeFromLeft(104)); secondary.removeFromLeft(6);
-        widerButton.setBounds(secondary.removeFromLeft(104));
-        shortcutLabel.setBounds(secondary);
-        if (comparisonVisible)
-        {
-            auto comparison = selected.removeFromTop(40);
-            comparisonLabel.setBounds(comparison.removeFromLeft(260));
-            comparisonAButton.setBounds(comparison.removeFromLeft(112)); comparison.removeFromLeft(6);
-            comparisonBButton.setBounds(comparison.removeFromLeft(112)); comparison.removeFromLeft(6);
-            comparisonNeitherButton.setBounds(comparison.removeFromLeft(82)); comparison.removeFromLeft(6);
-            comparisonSkipButton.setBounds(comparison.removeFromLeft(66));
-        }
+        shortcutLabel.setBounds(actions);
     }
 }
 
@@ -970,14 +983,14 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
              &comparisonAButton, &comparisonBButton, &comparisonNeitherButton,
              &comparisonSkipButton })
         component->setVisible(!visible);
-    comparisonLabel.setVisible(!visible && comparisonVisible);
-    comparisonAButton.setVisible(!visible && comparisonVisible);
-    comparisonBButton.setVisible(!visible && comparisonVisible);
-    comparisonNeitherButton.setVisible(!visible && comparisonVisible);
-    comparisonSkipButton.setVisible(!visible && comparisonVisible);
+    for (auto* component : std::initializer_list<juce::Component*> {
+             &keptButton, &recentButton, &newButton, &tryMoreButton, &favoriteButton,
+             &branchButton, &tighterButton, &widerButton, &comparisonLabel,
+             &comparisonAButton, &comparisonBButton, &comparisonNeitherButton,
+             &comparisonSkipButton })
+        component->setVisible(false);
     for (auto& card : candidateCards) card->setVisible(!visible && !showMap);
     if (!visible) updateResultVisibility();
-    tryMoreButton.setVisible(!visible && loadedRun.canTryMore);
     map.setVisible(!visible && showMap);
     resized();
     repaint();
@@ -1182,7 +1195,7 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     if (timbreLock.getToggleState()) locks.add("timbre");
     object->setProperty("locks", locks);
     object->setProperty("n_return", 8);
-    object->setProperty("n_oversample", 16);
+    object->setProperty("n_oversample", 8);
     object->setProperty("seed", juce::Random::getSystemRandom().nextInt());
     object->setProperty("library_index", libraryEditor.getText().trim());
     object->setProperty("critic_model", juce::File(modelsEditor.getText()).getChildFile("critic.joblib").getFullPathName());
@@ -1196,6 +1209,7 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("fast", true);
     object->setProperty("generation_batch_size", 8);
     object->setProperty("self_novelty_weight", 0.05);
+    object->setProperty("guarantee_results", true);
     object->setProperty("output_dir", outputEditor.getText().trim());
     const auto host = audioProcessor.hostPosition();
     auto hostContext = juce::JSON::parse("{}");
@@ -1323,7 +1337,7 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
     opinionSlider.setValue(loadedRun.opinion, juce::dontSendNotification);
     opinionValue.setText(juce::String(loadedRun.opinion) + "%", juce::dontSendNotification);
     comparisonsAsked.clear();
-    comparisonsRemaining = 1;
+    comparisonsRemaining = 0;
     chooseNextComparison();
     if (loadedRun.candidates.empty())
     {
@@ -1334,6 +1348,8 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
         candidateDetail.setText("No candidates met the quality and Preserve constraints",
                                 juce::dontSendNotification);
         selectedTitle.setText("NO VALID RESULT", juce::dontSendNotification);
+        for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
+            button->setEnabled(false);
         showToast("No valid variations yet - Try more keeps the same constraints");
         saveSettings();
         return;
@@ -1493,6 +1509,8 @@ void DivergeAudioProcessorEditor::selectCandidate(int rank, bool playImmediately
     if (candidate == nullptr || !candidate->file.existsAsFile()) return;
     selectedCandidate = rank;
     workflow.selectedCandidate = rank;
+    for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
+        button->setEnabled(true);
     map.setSelectedRank(rank);
     selectedTitle.setText("SELECTED  " + juce::String(rank).paddedLeft('0', 2), juce::dontSendNotification);
     candidateDetail.setText(candidate->explanation, juce::dontSendNotification);
@@ -2097,7 +2115,7 @@ void DivergeAudioProcessorEditor::timerCallback()
                                                   : juce::String()), juce::dontSendNotification);
     const auto active = audioProcessor.generation().isActive();
     generateButton.setEnabled(!active);
-    generateButton.setButtonText(active ? "Creating..." : "Create up to 8");
+    generateButton.setButtonText(active ? "Creating..." : "Create 8 variations");
     cancelButton.setVisible(showPrepare && active);
 
     if (!audioProcessor.isPreviewPlaying())

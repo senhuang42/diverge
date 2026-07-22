@@ -34,6 +34,7 @@ class RunConfig:
     opinion: int = 50
     taste_learning_enabled: bool = True
     prompt_enrichment_enabled: bool = True
+    guarantee_results: bool = False
     parent_run_id: str | None = None
     parent_candidate: int | None = None
     host_context: dict[str, Any] = field(default_factory=dict)

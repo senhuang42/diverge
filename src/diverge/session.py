@@ -11,6 +11,7 @@ from .config import RunConfig
 from .critic import taste_scores
 from .embed import Embedder
 from .explanations import candidate_explanations
+from .fallback import lock_safe_variations
 from .generator import GeneratorProtocol, transform_to_noise
 from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
@@ -108,6 +109,10 @@ def run_session(
     )
     source_channels = source.shape[0]
     generated = [match_channels(audio, source_channels) for audio in generated]
+    provenance = [
+        {"kind": "model", "treatment": None, "source_equivalent_embedding": False}
+        for _ in generated
+    ]
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     run_dir = config.output_dir / stamp
     staging = run_dir / ".oversample"
@@ -118,83 +123,131 @@ def run_session(
             report(f"PROGRESS {index + 1}/{config.n_oversample}")
         staging_paths.append(save_audio(staging / f"raw_{index:03d}.wav", audio, sr))
     stage("comparing")
-    candidate_embeddings = embedder.embed_batch(staging_paths)
     source_embedding = embedder.embed_file(config.source)
     source_lock_features = prepare_lock_source(source, source_embedding, sr)
-    ref_fit = np.clip((candidate_embeddings @ style_embedding + 1) / 2, 0, 1)
-    novelty = novelty_scores(candidate_embeddings, config.library_index)
-    self_novelty = self_novelty_scores(
-        candidate_embeddings, recent_kept_embeddings(config.choices_path)
-    )
-    legacy_taste = taste_scores(candidate_embeddings, config.critic_model)
-    candidates = []
-    contexts = []
-    candidate_similarities = []
+    candidates: list[Candidate] = []
+    contexts: list[CandidateContext] = []
     quality_reports = []
     expected_samples = round(duration_s * sr)
-    for index, (audio, embedding) in enumerate(zip(generated, candidate_embeddings, strict=True)):
-        quality = evaluate_quality(audio, expected_samples)
-        quality_reports.append(quality)
-        similarities = lock_similarities(
-            audio,
+
+    def analyze_batch(start: int, embeddings: np.ndarray) -> None:
+        batch_audio = generated[start : start + len(embeddings)]
+        ref_fit = np.clip((embeddings @ style_embedding + 1) / 2, 0, 1)
+        novelty = novelty_scores(embeddings, config.library_index)
+        self_novelty = self_novelty_scores(
+            embeddings, recent_kept_embeddings(config.choices_path)
+        )
+        legacy_taste = taste_scores(embeddings, config.critic_model)
+        batch_contexts: list[CandidateContext] = []
+        batch_similarities = []
+        batch_quality = []
+        for audio, embedding, novelty_score, self_novelty_score in zip(
+            batch_audio, embeddings, novelty, self_novelty, strict=True
+        ):
+            quality = evaluate_quality(audio, expected_samples)
+            similarities = lock_similarities(
+                audio,
+                source,
+                embedding,
+                source_embedding,
+                sr,
+                source_features=source_lock_features,
+            )
+            spectral, temporal = audio_descriptors(audio, sr)
+            batch_quality.append(quality)
+            batch_similarities.append(similarities)
+            batch_contexts.append(
+                CandidateContext(
+                    candidate_embedding=embedding,
+                    source_embedding=source_embedding,
+                    reference_embeddings=reference_embeddings,
+                    reference_weights=[weight for _, weight in config.references],
+                    scores={
+                        "groove": similarities.get("groove", 0.0),
+                        "melody": similarities.get("melody", 0.0),
+                        "timbre": similarities.get("timbre", 0.0),
+                        "novelty": float(novelty_score),
+                        "self_novelty": float(self_novelty_score),
+                        "lock_score": active_lock_score(similarities, config.locks),
+                    },
+                    spectral=spectral,
+                    temporal=temporal,
+                    transform=config.transform,
+                    spread=config.spread,
+                    drift=config.drift,
+                    locks=config.locks,
+                    source_category=source_category,
+                )
+            )
+        predictions = taste_model.score(batch_contexts)
+        for offset, embedding in enumerate(embeddings):
+            similarities = batch_similarities[offset]
+            lock_score = active_lock_score(similarities, config.locks)
+            if not batch_quality[offset].passed:
+                lock_score = -1.0
+            candidates.append(
+                Candidate(
+                    index=start + offset,
+                    embedding=embedding,
+                    ref_fit=float(ref_fit[offset]),
+                    taste=(
+                        float(predictions.mean[offset])
+                        if taste_model.observation_count
+                        else float(legacy_taste[offset])
+                    ),
+                    novelty=float(novelty[offset]),
+                    self_novelty=float(self_novelty[offset]),
+                    locks=similarities,
+                    lock_score=lock_score,
+                    taste_uncertainty=float(predictions.uncertainty[offset]),
+                    taste_evidence=float(predictions.evidence[offset]),
+                    taste_mode=predictions.mode_id[offset],
+                    taste_factors=predictions.factors[offset],
+                )
+            )
+        contexts.extend(batch_contexts)
+        quality_reports.extend(batch_quality)
+
+    model_embeddings = embedder.embed_batch(staging_paths)
+    analyze_batch(0, model_embeddings)
+    valid_model_count = sum(
+        candidate.lock_score >= config.lock_threshold for candidate in candidates
+    )
+    missing = max(0, config.n_return - valid_model_count)
+    if config.guarantee_results and missing:
+        fallback = lock_safe_variations(
             source,
-            embedding,
-            source_embedding,
             sr,
-            source_features=source_lock_features,
+            expected_samples,
+            count=missing + min(4, missing),
+            guaranteed_count=missing,
         )
-        candidate_similarities.append(similarities)
-        spectral, temporal = audio_descriptors(audio, sr)
-        contexts.append(
-            CandidateContext(
-                candidate_embedding=embedding,
-                source_embedding=source_embedding,
-                reference_embeddings=reference_embeddings,
-                reference_weights=[weight for _, weight in config.references],
-                scores={
-                    "groove": similarities.get("groove", 0.0),
-                    "melody": similarities.get("melody", 0.0),
-                    "timbre": similarities.get("timbre", 0.0),
-                    "novelty": float(novelty[index]),
-                    "self_novelty": float(self_novelty[index]),
-                    "lock_score": active_lock_score(similarities, config.locks),
-                },
-                spectral=spectral,
-                temporal=temporal,
-                transform=config.transform,
-                spread=config.spread,
-                drift=config.drift,
-                locks=config.locks,
-                source_category=source_category,
-            )
+        fallback_start = len(generated)
+        generated.extend(match_channels(item.audio, source_channels) for item in fallback)
+        provenance.extend(
+            {
+                "kind": "lock_safe_fallback",
+                "treatment": item.treatment,
+                "source_equivalent_embedding": item.source_equivalent_embedding,
+            }
+            for item in fallback
         )
-    predictions = taste_model.score(contexts)
-    for index, embedding in enumerate(candidate_embeddings):
-        similarities = candidate_similarities[index]
-        taste_mean = (
-            float(predictions.mean[index])
-            if taste_model.observation_count
-            else float(legacy_taste[index])
-        )
-        lock_score = active_lock_score(similarities, config.locks)
-        if not quality_reports[index].passed:
-            lock_score = -1.0
-        candidates.append(
-            Candidate(
-                index=index,
-                embedding=embedding,
-                ref_fit=float(ref_fit[index]),
-                taste=taste_mean,
-                novelty=float(novelty[index]),
-                self_novelty=float(self_novelty[index]),
-                locks=similarities,
-                lock_score=lock_score,
-                taste_uncertainty=float(predictions.uncertainty[index]),
-                taste_evidence=float(predictions.evidence[index]),
-                taste_mode=predictions.mode_id[index],
-                taste_factors=predictions.factors[index],
-            )
-        )
+        fallback_paths = [
+            save_audio(staging / f"raw_{fallback_start + index:03d}.wav", item.audio, sr)
+            for index, item in enumerate(fallback)
+        ]
+        staging_paths.extend(fallback_paths)
+        fallback_embeddings = np.empty((len(fallback), source_embedding.size), dtype=np.float32)
+        measured_indexes = [
+            index for index, item in enumerate(fallback) if not item.source_equivalent_embedding
+        ]
+        measured = embedder.embed_batch([fallback_paths[index] for index in measured_indexes])
+        for index, embedding in zip(measured_indexes, measured, strict=True):
+            fallback_embeddings[index] = embedding
+        for index, item in enumerate(fallback):
+            if item.source_equivalent_embedding:
+                fallback_embeddings[index] = source_embedding
+        analyze_batch(fallback_start, fallback_embeddings)
     stage("choosing")
     result = select_candidates(
         candidates,
@@ -215,7 +268,13 @@ def run_session(
                 "rank": rank,
                 "path": str(path),
                 "oversample_index": candidate.index,
-                "seed": config.seed + candidate.index,
+                "seed": (
+                    config.seed + candidate.index
+                    if provenance[candidate.index]["kind"] == "model"
+                    else None
+                ),
+                "origin": provenance[candidate.index]["kind"],
+                "treatment": provenance[candidate.index]["treatment"],
                 "ref_fit": round(candidate.ref_fit, 6),
                 "locks": {k: round(v, 6) for k, v in candidate.locks.items()},
                 "lock_score": round(candidate.lock_score, 6),
@@ -247,7 +306,11 @@ def run_session(
         has_direction=bool(config.references),
     )
     for record, explanation in zip(records, explanations, strict=True):
-        record["explanation"] = explanation["text"]
+        record["explanation"] = (
+            f"Lock-safe source treatment: {record['treatment']}."
+            if record["origin"] == "lock_safe_fallback"
+            else explanation["text"]
+        )
         record["explanation_evidence"] = explanation["evidence"]
     manifest = {
         "config": config.to_dict(),
@@ -296,6 +359,14 @@ def run_session(
                 )
             },
             "utility_weights": result.weights,
+            "model_pool_count": config.n_oversample,
+            "fallback_pool_count": sum(
+                item["kind"] == "lock_safe_fallback" for item in provenance
+            ),
+            "fallback_selected_count": sum(
+                provenance[candidate.index]["kind"] == "lock_safe_fallback"
+                for candidate in result.selected
+            ),
         },
         "taste": {
             "version": 2,

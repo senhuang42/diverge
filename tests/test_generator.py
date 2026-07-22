@@ -4,6 +4,7 @@ from diverge.generator import (
     MockGenerator,
     StableAudio3Generator,
     StableAudioGenerator,
+    fit_generated_duration,
     fit_source_duration,
     transform_to_noise,
 )
@@ -31,6 +32,17 @@ def test_short_stereo_source_is_looped_without_crossing_channels() -> None:
     fitted = fit_source_duration(source, 8)
     np.testing.assert_array_equal(fitted[0], [1, 2, 3, 1, 2, 3, 1, 2])
     np.testing.assert_array_equal(fitted[1], [10, 20, 30, 10, 20, 30, 10, 20])
+
+
+def test_generated_audio_is_conformed_to_exact_requested_length() -> None:
+    audio = np.stack([np.linspace(-0.2, 0.2, 997, dtype=np.float32)] * 2)
+
+    conformed = fit_generated_duration(audio, 1_000)
+
+    assert conformed.shape == (2, 1_000)
+    assert conformed.dtype == np.float32
+    np.testing.assert_allclose(conformed[:, 0], audio[:, 0])
+    np.testing.assert_allclose(conformed[:, -1], audio[:, -1])
 
 
 def test_fast_generator_uses_short_sampler_and_keeps_batch_setting() -> None:

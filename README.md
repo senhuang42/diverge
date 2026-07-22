@@ -28,6 +28,9 @@ Normal mode generates 32 candidates. Fast mode generates 16. Both request up to 
 results. Preserve and quality checks are hard gates: if fewer than eight candidates pass, Diverge
 returns the valid subset and records the shortfall instead of weakening the constraints.
 
+The plugin uses a lower-latency guaranteed-results mode: it validates an eight-candidate model
+pool, then fills missing slots with labeled source-derived treatments that pass the same gates.
+
 Outputs default to the source's exact duration. Explicit duration changes are recorded as crops or
 loop fills. Silence, clipping, invalid layouts, severe discontinuities, and wrong-length candidates
 are rejected before selection. Mono sources produce mono files; stereo sources remain stereo.

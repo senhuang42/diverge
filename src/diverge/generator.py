@@ -56,6 +56,20 @@ def fit_source_duration(source: np.ndarray, samples: int) -> np.ndarray:
     return source_array[:, :samples].copy()
 
 
+def fit_generated_duration(audio: np.ndarray, samples: int) -> np.ndarray:
+    """Conform decoder output to the exact session duration without looping a partial tail."""
+    output = np.asarray(audio, dtype=np.float32)
+    if output.shape[-1] == samples:
+        return output
+    if output.shape[-1] < 2:
+        return np.repeat(output, samples, axis=-1)
+    old_positions = np.linspace(0.0, 1.0, output.shape[-1], dtype=np.float64)
+    new_positions = np.linspace(0.0, 1.0, samples, dtype=np.float64)
+    return np.stack(
+        [np.interp(new_positions, old_positions, channel) for channel in output]
+    ).astype(np.float32)
+
+
 class GeneratorProtocol(Protocol):
     def generate(
         self,
@@ -339,7 +353,8 @@ class StableAudioGenerator:
                 self.progress(f"BATCH_RETRY {size}->{active_batch_size}")
                 continue
             arrays = audio.detach().float().cpu().numpy()
-            outputs.extend(arrays)
+            expected_samples = round(duration_s * sr)
+            outputs.extend(fit_generated_duration(array, expected_samples) for array in arrays)
             index += size
             for completed in range(index - size + 1, index + 1):
                 self.progress(f"PROGRESS {completed}/{n}")
