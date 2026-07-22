@@ -20,10 +20,35 @@ int captureCapacitySamples(double sampleRate) noexcept
     return juce::jmax(1, static_cast<int>(std::llround(sampleRate * 30.0)));
 }
 
+double barDurationSeconds(const HostPositionFacts& host, int bars) noexcept
+{
+    const auto safeBars = juce::jlimit(1, 8, bars);
+    const auto safeBpm = host.bpm > 0.0 ? host.bpm : 120.0;
+    const auto denominator = host.timeSignatureDenominator > 0
+                                 ? host.timeSignatureDenominator
+                                 : 4;
+    const auto numerator = host.timeSignatureNumerator > 0 ? host.timeSignatureNumerator : 4;
+    const auto quartersPerBar = static_cast<double>(numerator) * 4.0
+                                / static_cast<double>(denominator);
+    return static_cast<double>(safeBars) * quartersPerBar * 60.0 / safeBpm;
+}
+
+double sourceRegionDurationSeconds(const juce::File& source,
+                                   const HostPositionFacts& host,
+                                   int bars)
+{
+    juce::AudioFormatManager manager;
+    manager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(manager.createReaderFor(source));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+        return 0.0;
+    const auto fileDuration = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+    return juce::jmin(fileDuration, barDurationSeconds(host, bars));
+}
+
 BarCapturePlan planBarCapture(const HostPositionFacts& host, int bars,
                               int blockSamples) noexcept
 {
-    const auto safeBars = juce::jlimit(1, 8, bars);
     const auto safeRate = host.sampleRate > 0.0 ? host.sampleRate : 44100.0;
     const auto safeBpm = host.bpm > 0.0 ? host.bpm : 120.0;
     const auto denominator = host.timeSignatureDenominator > 0
@@ -33,10 +58,9 @@ BarCapturePlan planBarCapture(const HostPositionFacts& host, int bars,
     const auto quartersPerBar = static_cast<double>(numerator) * 4.0
                                 / static_cast<double>(denominator);
     BarCapturePlan result;
-    result.targetSamples = juce::jmin(
-        captureCapacitySamples(safeRate),
-        static_cast<int>(std::llround(static_cast<double>(safeBars) * quartersPerBar
-                                      * 60.0 / safeBpm * safeRate)));
+    result.targetSamples = juce::jmin(captureCapacitySamples(safeRate),
+                                      static_cast<int>(std::llround(
+                                          barDurationSeconds(host, bars) * safeRate)));
     if (!host.available)
     {
         result.startOffset = 0;

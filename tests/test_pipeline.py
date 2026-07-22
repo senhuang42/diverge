@@ -98,6 +98,40 @@ def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> No
     assert len(list(run_dir.glob("cand_*.wav"))) == 2
 
 
+def test_explicit_duration_crops_the_source_region_before_generation(tmp_path: Path) -> None:
+    seen: dict[str, int] = {}
+
+    class SourceEchoGenerator(MockGenerator):
+        def generate(
+            self, source, sr, style_embedding, style_text_hint, transform, duration_s, seed, n
+        ):
+            del style_embedding, style_text_hint, transform, seed
+            seen["samples"] = source.shape[-1]
+            return [source.copy() for _ in range(n)]
+
+    config = RunConfig(
+        source=DATA / "loop_a.wav",
+        references=[],
+        n_return=1,
+        n_oversample=1,
+        duration_s=0.5,
+        output_dir=tmp_path / "runs",
+        locks=set(),
+    )
+    embedder = Embedder(
+        model_id="spectral-test", cache_dir=tmp_path / "cache", backend=SpectralBackend()
+    )
+
+    run_dir = run_session(config, SourceEchoGenerator(), embedder, progress=lambda _: None)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+
+    assert seen["samples"] == 22_050
+    assert manifest["audio_contract"]["source_file_duration_s"] == 2.0
+    assert manifest["audio_contract"]["source_duration_s"] == 0.5
+    assert manifest["audio_contract"]["output_duration_s"] == 0.5
+    assert manifest["audio_contract"]["source_fit"] == "cropped"
+
+
 def test_mock_session_preserves_mono_output(tmp_path: Path) -> None:
     source = save_audio(
         tmp_path / "mono.wav",

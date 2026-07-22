@@ -13,6 +13,10 @@ from scipy.signal import butter, sosfiltfilt
 
 TRANSFORM_NOISE_MIN = 0.10
 TRANSFORM_NOISE_MAX = 1.00
+OPEN_SMALL_SAMPLE_SIZE = 524_288
+OPEN_SMALL_SAMPLE_RATE = 44_100
+OPEN_SMALL_MAX_DURATION_S = OPEN_SMALL_SAMPLE_SIZE / OPEN_SMALL_SAMPLE_RATE
+DECODER_ALIGNMENT_SAMPLES = 2_048
 
 _VARIATION_DIRECTIONS = (
     "syncopated rhythmic rework with new accents",
@@ -138,18 +142,24 @@ def fit_source_duration(source: np.ndarray, samples: int) -> np.ndarray:
     return source_array[:, :samples].copy()
 
 
-def fit_generated_duration(audio: np.ndarray, samples: int) -> np.ndarray:
-    """Conform decoder output to the exact session duration without looping a partial tail."""
+def fit_generated_duration(
+    audio: np.ndarray,
+    samples: int,
+    *,
+    max_shortfall: int = DECODER_ALIGNMENT_SAMPLES,
+) -> np.ndarray:
+    """Conform a decoder-alignment mismatch without changing playback speed or pitch."""
     output = np.asarray(audio, dtype=np.float32)
     if output.shape[-1] == samples:
         return output
-    if output.shape[-1] < 2:
-        return np.repeat(output, samples, axis=-1)
-    old_positions = np.linspace(0.0, 1.0, output.shape[-1], dtype=np.float64)
-    new_positions = np.linspace(0.0, 1.0, samples, dtype=np.float64)
-    return np.stack(
-        [np.interp(new_positions, old_positions, channel) for channel in output]
-    ).astype(np.float32)
+    if output.shape[-1] > samples:
+        return output[..., :samples].copy()
+    shortfall = samples - output.shape[-1]
+    if shortfall > max_shortfall:
+        raise ValueError(
+            f"generated audio is {shortfall} samples short; refusing to time-stretch it"
+        )
+    return np.pad(output, ((0, 0), (0, shortfall))).astype(np.float32, copy=False)
 
 
 class GeneratorProtocol(Protocol):
@@ -229,8 +239,8 @@ class StableAudioGenerator:
         engine_id="stable-audio-open-small",
         model_id=MODEL_ID,
         source_classes=("music", "sound-effects"),
-        duration_s=(0.25, 47.0),
-        sample_rate=44_100,
+        duration_s=(0.25, OPEN_SMALL_MAX_DURATION_S),
+        sample_rate=OPEN_SMALL_SAMPLE_RATE,
         channels=(1, 2),
         audio_to_audio=True,
         text_direction=True,
@@ -397,7 +407,15 @@ class StableAudioGenerator:
         model, config = self._load()
         device = next(model.parameters()).device
         target_sr = int(config["sample_rate"])
-        sample_size = min(int(config["sample_size"]), round(duration_s * target_sr))
+        configured_sample_size = int(config["sample_size"])
+        requested_samples = round(duration_s * target_sr)
+        if requested_samples > configured_sample_size:
+            maximum = configured_sample_size / target_sr
+            raise ValueError(
+                f"{self.capabilities.engine_id} supports at most {maximum:.3f} seconds; "
+                f"received {duration_s:.3f} seconds"
+            )
+        sample_size = requested_samples
         source_array = fit_source_duration(source, sample_size)
         init = torch.from_numpy(source_array.copy()).to(device=device, dtype=torch.float32)
         params = inspect.signature(generate_diffusion_cond).parameters

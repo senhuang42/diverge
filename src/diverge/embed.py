@@ -89,6 +89,11 @@ class Embedder:
     def embed_file(self, path: str | Path) -> np.ndarray:
         return self.embed_batch([path])[0]
 
+    def embed_audio(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Embed an in-memory source region without falling back to the full source file."""
+        signal = mono(audio)
+        return _normalize(self.backend.embed([signal], sample_rate))[0]
+
     def embed_batch(self, paths: list[str | Path]) -> np.ndarray:
         paths = [Path(path) for path in paths]
         if not paths:

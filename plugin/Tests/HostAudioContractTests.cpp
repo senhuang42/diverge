@@ -26,6 +26,8 @@ int main()
 
     HostPositionFacts host;
     host.sampleRate = 48000.0;
+    if (std::abs(barDurationSeconds(host, 4) - 8.0) > 1.0e-9)
+        return fail("host-free bar duration did not use the capture fallback tempo");
     auto plan = planBarCapture(host, 4, 512);
     if (plan.startOffset != 0 || plan.targetSamples != 384000)
         return fail("host-free capture did not start immediately at the requested bar length");
@@ -40,6 +42,10 @@ int main()
     plan = planBarCapture(host, 2, 512);
     if (plan.startOffset != 24 || plan.targetSamples != 192000)
         return fail("capture did not align to the next host bar");
+    host.bpm = 130.0;
+    if (std::abs(barDurationSeconds(host, 4) - (96.0 / 13.0)) > 1.0e-9)
+        return fail("bar duration did not follow host tempo");
+    host.bpm = 120.0;
     host.ppqPosition = 3.0;
     if (planBarCapture(host, 2, 512).startOffset >= 0)
         return fail("capture began before the next host bar reached the block");
@@ -81,6 +87,9 @@ int main()
         if (reader == nullptr || static_cast<int>(reader->numChannels) != channels
             || reader->lengthInSamples != 200 || reader->sampleRate != 48000.0)
             return fail("captured WAV did not preserve host channels, length, and sample rate");
+        if (std::abs(sourceRegionDurationSeconds(file, host, 4) - (200.0 / 48000.0))
+            > 1.0e-9)
+            return fail("source region extended a file shorter than the selected bar length");
     }
     root.deleteRecursively();
     return EXIT_SUCCESS;

@@ -87,10 +87,23 @@ def run_session(
 
     stage("preparing")
     source, sr = load_audio(config.source)
-    source_duration_s = source.shape[-1] / sr
-    if not 0.25 <= source_duration_s <= 30:
+    source_file_duration_s = source.shape[-1] / sr
+    if not 0.25 <= source_file_duration_s <= 30:
         raise ValueError("source audio must be between 0.25 and 30 seconds")
-    duration_s = config.duration_s if config.duration_s is not None else source_duration_s
+    requested_duration_s = config.duration_s
+    duration_s = (
+        min(requested_duration_s, source_file_duration_s)
+        if requested_duration_s
+        else source_file_duration_s
+    )
+    source = source[..., : round(duration_s * sr)].copy()
+    if hasattr(generator, "capabilities"):
+        minimum, maximum = generator.capabilities.duration_s
+        if not minimum <= duration_s <= maximum:
+            raise ValueError(
+                f"{generator.capabilities.engine_id} supports source regions between "
+                f"{minimum:.3f} and {maximum:.3f} seconds; received {duration_s:.3f} seconds"
+            )
     source_spectral, source_temporal = audio_descriptors(source, sr)
     source_category = (
         "percussive"
@@ -120,7 +133,7 @@ def run_session(
         style_embedding = weights @ reference_embeddings
         style_embedding /= max(float(np.linalg.norm(style_embedding)), 1e-12)
     else:
-        style_embedding = embedder.embed_file(config.source)
+        style_embedding = embedder.embed_audio(source, sr)
     if hasattr(generator, "progress"):
         generator.progress = report
     if hasattr(generator, "preserve_locks"):
@@ -159,7 +172,9 @@ def run_session(
             report(f"PROGRESS {index + 1}/{config.n_oversample}")
         staging_paths.append(save_audio(staging / f"raw_{index:03d}.wav", audio, sr))
     stage("comparing")
-    source_embedding = embedder.embed_file(config.source)
+    source_embedding = (
+        style_embedding if not config.references else embedder.embed_audio(source, sr)
+    )
     source_lock_features = prepare_lock_source(source, source_embedding, sr)
     candidates: list[Candidate] = []
     contexts: list[CandidateContext] = []
@@ -375,13 +390,14 @@ def run_session(
             getattr(generator, "inference_settings", {}),
         ),
         "audio_contract": {
-            "source_duration_s": source_duration_s,
-            "requested_duration_s": config.duration_s,
+            "source_duration_s": duration_s,
+            "source_file_duration_s": source_file_duration_s,
+            "requested_duration_s": requested_duration_s,
             "output_duration_s": duration_s,
             "source_fit": (
                 "exact"
-                if np.isclose(duration_s, source_duration_s)
-                else ("cropped" if duration_s < source_duration_s else "looped")
+                if np.isclose(duration_s, source_file_duration_s)
+                else "cropped"
             ),
             "sample_rate": sr,
             "source_channels": source_channels,

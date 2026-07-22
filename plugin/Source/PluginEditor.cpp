@@ -1281,6 +1281,9 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
     object->setProperty("guarantee_results", true);
     object->setProperty("output_dir", outputEditor.getText().trim());
     const auto host = audioProcessor.hostPosition();
+    const auto sourceDuration = sourceRegionDurationSeconds(
+        audioSlots[0], host, captureLength.getSelectedId());
+    if (sourceDuration > 0.0) object->setProperty("duration_s", sourceDuration);
     auto hostContext = juce::JSON::parse("{}");
     auto* hostObject = hostContext.getDynamicObject();
     hostObject->setProperty("available", host.available);

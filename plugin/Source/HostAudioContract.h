@@ -26,6 +26,10 @@ bool isSupportedMainBusLayout(const juce::AudioChannelSet& input,
                               const juce::AudioChannelSet& output) noexcept;
 int supportedCaptureChannels(int inputChannels) noexcept;
 int captureCapacitySamples(double sampleRate) noexcept;
+double barDurationSeconds(const HostPositionFacts& host, int bars) noexcept;
+double sourceRegionDurationSeconds(const juce::File& source,
+                                   const HostPositionFacts& host,
+                                   int bars);
 BarCapturePlan planBarCapture(const HostPositionFacts& host, int bars,
                               int blockSamples) noexcept;
 int planBeatAuditionStart(const HostPositionFacts& host, int blockSamples) noexcept;

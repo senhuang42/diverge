@@ -1,6 +1,7 @@
 import numpy as np
 
 from diverge.generator import (
+    OPEN_SMALL_MAX_DURATION_S,
     MockGenerator,
     StableAudio3Generator,
     StableAudioGenerator,
@@ -44,8 +45,20 @@ def test_generated_audio_is_conformed_to_exact_requested_length() -> None:
 
     assert conformed.shape == (2, 1_000)
     assert conformed.dtype == np.float32
-    np.testing.assert_allclose(conformed[:, 0], audio[:, 0])
-    np.testing.assert_allclose(conformed[:, -1], audio[:, -1])
+    np.testing.assert_array_equal(conformed[:, :997], audio)
+    np.testing.assert_array_equal(conformed[:, 997:], 0)
+
+
+def test_generated_audio_is_never_time_stretched_over_a_large_shortfall() -> None:
+    audio = np.zeros((2, 524_288), dtype=np.float32)
+
+    with np.testing.assert_raises_regex(ValueError, "refusing to time-stretch"):
+        fit_generated_duration(audio, 651_323)
+
+
+def test_open_small_reports_its_real_render_window() -> None:
+    assert OPEN_SMALL_MAX_DURATION_S == 524_288 / 44_100
+    assert StableAudioGenerator.capabilities.duration_s[1] == OPEN_SMALL_MAX_DURATION_S
 
 
 def test_fast_generator_uses_short_sampler_and_keeps_batch_setting() -> None:
