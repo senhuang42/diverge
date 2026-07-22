@@ -17,7 +17,12 @@ from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
 from .novelty import novelty_scores, recent_kept_embeddings, self_novelty_scores
 from .quality import evaluate_quality
-from .select import Candidate, select_candidates
+from .select import (
+    Candidate,
+    change_alignment_score,
+    pairwise_similarity_metrics,
+    select_candidates,
+)
 from .taste.events import TasteEventStore
 from .taste.features import CandidateContext, audio_descriptors, descriptor_scores
 from .taste.model import load_or_neutral
@@ -36,6 +41,22 @@ def _style_hint(config: RunConfig) -> str:
             names.append(" ".join(useful))
     details = f", {', '.join(names)}" if names else ""
     return f"clean polished instrumental production loop{details}"
+
+
+def _direction_descriptor_hint(config: RunConfig) -> str:
+    if not config.references:
+        return ""
+    weighted: dict[str, float] = {}
+    for path, weight in config.references:
+        audio, sr = load_audio(path)
+        spectral, temporal = audio_descriptors(audio, sr)
+        for name, score in descriptor_scores(spectral, temporal).items():
+            weighted[name] = weighted.get(name, 0.0) + weight * score
+    groups = (("dark", "bright"), ("percussive", "sparse"), ("raw", "polished"))
+    descriptors = [max(group, key=lambda name: weighted.get(name, 0.0)) for group in groups]
+    if weighted.get("compressed", 0.0) >= 0.65:
+        descriptors.append("compressed")
+    return ", ".join(descriptors)
 
 
 def run_session(
@@ -80,6 +101,11 @@ def run_session(
     taste_events = TasteEventStore(config.taste_events_path).load(effective=True)
     hypotheses = infer_descriptors(taste_events)
     base_prompt = _style_hint(config)
+    direction_hint = _direction_descriptor_hint(config)
+    if direction_hint:
+        base_prompt += f", direction audio is {direction_hint}"
+    if float(config.host_context.get("bpm", 0) or 0) > 0:
+        base_prompt += f", {round(float(config.host_context['bpm']))} BPM"
     prompt, prompt_additions = enrich_prompt(
         base_prompt,
         hypotheses,
@@ -97,6 +123,8 @@ def run_session(
         style_embedding = embedder.embed_file(config.source)
     if hasattr(generator, "progress"):
         generator.progress = report
+    if hasattr(generator, "preserve_locks"):
+        generator.preserve_locks = set(config.locks)
     generated = generator.generate(
         source,
         sr,
@@ -109,9 +137,17 @@ def run_session(
     )
     source_channels = source.shape[0]
     generated = [match_channels(audio, source_channels) for audio in generated]
+    generated_prompts = list(getattr(generator, "last_prompts", []))
+    if len(generated_prompts) != len(generated):
+        generated_prompts = [prompt] * len(generated)
     provenance = [
-        {"kind": "model", "treatment": None, "source_equivalent_embedding": False}
-        for _ in generated
+        {
+            "kind": "model",
+            "treatment": None,
+            "source_equivalent_embedding": False,
+            "prompt": generated_prompts[index],
+        }
+        for index in range(len(generated))
     ]
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     run_dir = config.output_dir / stamp
@@ -132,7 +168,15 @@ def run_session(
 
     def analyze_batch(start: int, embeddings: np.ndarray) -> None:
         batch_audio = generated[start : start + len(embeddings)]
-        ref_fit = np.clip((embeddings @ style_embedding + 1) / 2, 0, 1)
+        source_similarity = np.clip((embeddings @ source_embedding + 1) / 2, 0, 1)
+        if config.references:
+            ref_fit = np.clip((embeddings @ style_embedding + 1) / 2, 0, 1)
+        else:
+            ref_fit = np.full(len(embeddings), 0.5, dtype=np.float32)
+        change_fit = np.asarray(
+            [change_alignment_score(value, config.transform) for value in source_similarity],
+            dtype=np.float32,
+        )
         novelty = novelty_scores(embeddings, config.library_index)
         self_novelty = self_novelty_scores(
             embeddings, recent_kept_embeddings(config.choices_path)
@@ -190,6 +234,8 @@ def run_session(
                     index=start + offset,
                     embedding=embedding,
                     ref_fit=float(ref_fit[offset]),
+                    source_similarity=float(source_similarity[offset]),
+                    change_fit=float(change_fit[offset]),
                     taste=(
                         float(predictions.mean[offset])
                         if taste_model.observation_count
@@ -229,6 +275,7 @@ def run_session(
                 "kind": "lock_safe_fallback",
                 "treatment": item.treatment,
                 "source_equivalent_embedding": item.source_equivalent_embedding,
+                "prompt": None,
             }
             for item in fallback
         )
@@ -276,6 +323,9 @@ def run_session(
                 "origin": provenance[candidate.index]["kind"],
                 "treatment": provenance[candidate.index]["treatment"],
                 "ref_fit": round(candidate.ref_fit, 6),
+                "source_similarity": round(candidate.source_similarity, 6),
+                "change_fit": round(candidate.change_fit, 6),
+                "generation_prompt": provenance[candidate.index]["prompt"],
                 "locks": {k: round(v, 6) for k, v in candidate.locks.items()},
                 "lock_score": round(candidate.lock_score, 6),
                 "novelty": round(candidate.novelty, 6),
@@ -312,13 +362,18 @@ def run_session(
             else explanation["text"]
         )
         record["explanation_evidence"] = explanation["evidence"]
+    diversity_metrics = pairwise_similarity_metrics(result.selected)
     manifest = {
         "config": config.to_dict(),
         "model_ids": {"embedder": embedder.model_id, "generator": type(generator).__name__},
         "engine_capabilities": (
             generator.capabilities.to_dict() if hasattr(generator, "capabilities") else None
         ),
-        "generator_settings": getattr(generator, "inference_settings", {}),
+        "generator_settings": getattr(
+            generator,
+            "last_inference_settings",
+            getattr(generator, "inference_settings", {}),
+        ),
         "audio_contract": {
             "source_duration_s": source_duration_s,
             "requested_duration_s": config.duration_s,
@@ -367,6 +422,15 @@ def run_session(
                 provenance[candidate.index]["kind"] == "lock_safe_fallback"
                 for candidate in result.selected
             ),
+            "mean_source_similarity": round(
+                float(
+                    np.mean([candidate.source_similarity for candidate in result.selected])
+                    if result.selected
+                    else 0.0
+                ),
+                6,
+            ),
+            **diversity_metrics,
         },
         "taste": {
             "version": 2,

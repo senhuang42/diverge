@@ -49,10 +49,16 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert manifest["selection"]["relaxations"] == []
     assert manifest["selection"]["returned_count"] == 3
     assert manifest["selection"]["shortfall"] == 0
+    assert "mean_source_similarity" in manifest["selection"]
+    assert "max_pairwise_similarity" in manifest["selection"]
+    assert "redundant_pair_fraction" in manifest["selection"]
     assert manifest["taste"]["version"] == 2
     assert "descriptors" in manifest["source_analysis"]
     assert all("explanation" in item for item in manifest["candidates"])
     assert all("explanation_evidence" in item for item in manifest["candidates"])
+    assert all("source_similarity" in item for item in manifest["candidates"])
+    assert all("change_fit" in item for item in manifest["candidates"])
+    assert all("generation_prompt" in item for item in manifest["candidates"])
     structured = [
         json.loads(item.removeprefix("DIVERGE_EVENT "))
         for item in events

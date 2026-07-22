@@ -1,6 +1,11 @@
 import numpy as np
 
-from diverge.select import Candidate, select_candidates
+from diverge.select import (
+    Candidate,
+    change_alignment_score,
+    pairwise_similarity_metrics,
+    select_candidates,
+)
 
 
 def _candidate(index: int, vector: list[float], utility: float, novelty: float = 0.5, lock=1.0):
@@ -65,3 +70,25 @@ def test_self_novelty_weight_prefers_distance_from_recent_keeps() -> None:
     fresh.self_novelty = 1.0
     result = select_candidates([repeated, fresh], 1, spread=0, drift=0, self_novelty_weight=0.05)
     assert result.selected[0].index == 1
+
+
+def test_change_alignment_reverses_source_similarity_preference() -> None:
+    same = 0.95
+    different = 0.55
+
+    assert change_alignment_score(same, 10) > change_alignment_score(different, 10)
+    assert change_alignment_score(same, 90) < change_alignment_score(different, 90)
+
+
+def test_pairwise_metrics_expose_redundant_batches() -> None:
+    candidates = [
+        _candidate(0, [1, 0], 0.5),
+        _candidate(1, [1, 0], 0.5),
+        _candidate(2, [0, 1], 0.5),
+    ]
+
+    metrics = pairwise_similarity_metrics(candidates)
+
+    assert metrics["mean_pairwise_similarity"] == 0.333333
+    assert metrics["max_pairwise_similarity"] == 1.0
+    assert metrics["redundant_pair_fraction"] == 0.333333

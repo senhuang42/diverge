@@ -10,6 +10,8 @@ class Candidate:
     index: int
     embedding: np.ndarray
     ref_fit: float
+    source_similarity: float = 1.0
+    change_fit: float = 0.5
     taste: float = 0.5
     novelty: float = 0.5
     self_novelty: float = 0.5
@@ -40,6 +42,30 @@ def spread_lambda(spread: int) -> float:
     return round(1.5 * normalized**2, 6)
 
 
+def change_alignment_score(source_similarity: float, transform: int) -> float:
+    """Reward source identity at low Change and source distance at high Change."""
+    change = float(np.clip(transform, 0, 100) / 100)
+    similarity = float(np.clip(source_similarity, 0, 1))
+    return (1 - change) * similarity + change * (1 - similarity)
+
+
+def pairwise_similarity_metrics(candidates: list[Candidate]) -> dict[str, float]:
+    if len(candidates) < 2:
+        return {
+            "mean_pairwise_similarity": 0.0,
+            "max_pairwise_similarity": 0.0,
+            "redundant_pair_fraction": 0.0,
+        }
+    embeddings = np.vstack([candidate.embedding for candidate in candidates])
+    similarities = embeddings @ embeddings.T
+    pairs = similarities[np.triu_indices(len(candidates), 1)]
+    return {
+        "mean_pairwise_similarity": round(float(np.mean(pairs)), 6),
+        "max_pairwise_similarity": round(float(np.max(pairs)), 6),
+        "redundant_pair_fraction": round(float(np.mean(pairs >= 0.9)), 6),
+    }
+
+
 def _utility(
     candidate: Candidate,
     drift: int,
@@ -57,6 +83,7 @@ def _utility(
         )
     weights = {
         "ref_fit": 0.5,
+        "change_fit": 0.4,
         "taste": candidate.effective_taste_weight,
         "novelty": round(0.2 * (1 + drift / 100) * (drift / 100), 6),
         "self_novelty": round(self_novelty_weight, 6),
@@ -64,6 +91,7 @@ def _utility(
     value = sum(
         (
             candidate.ref_fit * weights["ref_fit"],
+            candidate.change_fit * weights["change_fit"],
             (candidate.taste - 0.5) * weights["taste"],
             candidate.novelty * weights["novelty"],
             candidate.self_novelty * weights["self_novelty"],

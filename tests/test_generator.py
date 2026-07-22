@@ -6,7 +6,10 @@ from diverge.generator import (
     StableAudioGenerator,
     fit_generated_duration,
     fit_source_duration,
+    inference_steps,
+    normalize_generated_audio,
     transform_to_noise,
+    variation_prompts,
 )
 
 
@@ -49,6 +52,30 @@ def test_fast_generator_uses_short_sampler_and_keeps_batch_setting() -> None:
     generator = StableAudioGenerator(fast=True, batch_size=6)
     assert generator.inference_settings["steps"] == 4
     assert generator.inference_settings["batch_size"] == 6
+
+
+def test_high_change_uses_full_sampler_and_distinct_candidate_briefs() -> None:
+    prompts = variation_prompts(
+        "electronic loop", transform=90, seed=3, count=8, locks={"groove"}
+    )
+
+    assert inference_steps(69, fast=True) == 4
+    assert inference_steps(70, fast=True) == 8
+    assert inference_steps(10, fast=False) == 8
+    assert len(set(prompts)) == 8
+    assert all("radically reimagined" in prompt for prompt in prompts)
+    assert all("preserve the original groove exactly" in prompt for prompt in prompts)
+    assert not any("half-time" in prompt or "double-time" in prompt for prompt in prompts)
+
+
+def test_generated_audio_is_peak_normalized_without_boosting_quiet_audio() -> None:
+    loud = np.asarray([[0.0, 1.2, -0.6]], dtype=np.float32)
+    quiet = np.asarray([[0.0, 0.2, -0.1]], dtype=np.float32)
+
+    normalized = normalize_generated_audio(loud)
+
+    assert float(np.max(np.abs(normalized))) == np.float32(0.95)
+    np.testing.assert_array_equal(normalize_generated_audio(quiet), quiet)
 
 
 def test_sa3_adapter_reports_truthful_capabilities() -> None:

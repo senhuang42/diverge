@@ -62,6 +62,9 @@ For a host-free smoke test, open
 Quality and Preserve checks are hard gates. The plugin generates a fast model pool, validates it,
 then fills any missing slots with labeled, source-derived lock-safe treatments. It always presents
 eight results without silently lowering the requested Preserve threshold.
+Each seed receives a distinct brief that avoids contradicting active Preserve locks. At Change 70
+or above, generation uses the model's full sampler; decoded peaks are normalized before quality
+validation, and selection explicitly rewards the requested distance from the source.
 High Change with all three Preserve locks shows a warning but remains available to try.
 Choose a 1, 2, 4, or 8-bar capture. In a host, recording arms until the next bar and then stops at
 the requested length. Mono/stereo layout, sample rate, tempo, and time signature are preserved as

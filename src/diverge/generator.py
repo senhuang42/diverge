@@ -14,6 +14,39 @@ from scipy.signal import butter, sosfiltfilt
 TRANSFORM_NOISE_MIN = 0.10
 TRANSFORM_NOISE_MAX = 1.00
 
+_VARIATION_DIRECTIONS = (
+    "syncopated rhythmic rework with new accents",
+    "half-time sparse arrangement with wide negative space",
+    "double-time kinetic arrangement with dense percussion",
+    "dark analog instrumentation with a distorted low register",
+    "bright acoustic instrumentation with crisp upper harmonics",
+    "staccato call-and-response phrasing with a newly composed motif",
+    "sustained evolving atmosphere with long resonant tails",
+    "minimal dry percussive reduction with a different sound palette",
+)
+
+_TIMBRE_DIRECTIONS = (
+    "dark analog sound palette with saturated low-register instruments",
+    "bright acoustic sound palette with crisp upper harmonics",
+    "glassy digital sound palette with precise transient detail",
+    "warm tape-worn sound palette with rounded transients",
+    "dry close-miked instrumentation with very short ambience",
+    "spacious resonant instrumentation with long dimensional tails",
+    "organic struck and plucked instrumentation",
+    "synthetic hybrid instrumentation with animated spectral movement",
+)
+
+_MIX_DIRECTIONS = (
+    "darker spectral balance with restrained upper harmonics",
+    "brighter spectral balance with open upper harmonics",
+    "dry intimate production with narrow depth",
+    "wide atmospheric production with extended depth",
+    "soft rounded transients and warm saturation",
+    "sharp detailed transients and clean articulation",
+    "bass-forward balance with controlled high frequencies",
+    "midrange-forward balance with reduced low-frequency weight",
+)
+
 
 @dataclass(frozen=True)
 class EngineCapabilities:
@@ -44,6 +77,55 @@ def transform_to_noise(transform: int) -> float:
     return TRANSFORM_NOISE_MIN + np.clip(transform, 0, 100) / 100 * (
         TRANSFORM_NOISE_MAX - TRANSFORM_NOISE_MIN
     )
+
+
+def inference_steps(transform: int, *, fast: bool) -> int:
+    """Keep routine exploration fast, but give high-Change diffusion enough time to resolve."""
+    return 8 if not fast or transform >= 70 else 4
+
+
+def variation_prompts(
+    base_prompt: str,
+    transform: int,
+    seed: int,
+    count: int,
+    locks: set[str] | None = None,
+) -> list[str]:
+    """Create deterministic, materially different briefs for a single batched model call."""
+    if count < 1:
+        return []
+    if transform >= 70:
+        intent = "radically reimagined variation, new structure and instrumentation"
+    elif transform >= 35:
+        intent = "clearly reinterpreted variation"
+    else:
+        intent = "subtle production variation"
+    active_locks = locks or set()
+    if {"groove", "melody", "timbre"} <= active_locks:
+        directions = _MIX_DIRECTIONS
+    elif "groove" in active_locks and "melody" in active_locks:
+        directions = _TIMBRE_DIRECTIONS
+    elif "groove" in active_locks:
+        directions = _TIMBRE_DIRECTIONS
+    else:
+        directions = _VARIATION_DIRECTIONS
+    preserve = ""
+    if active_locks:
+        preserve = f", preserve the original {' and '.join(sorted(active_locks))} exactly"
+    start = seed % len(directions)
+    return [
+        f"{base_prompt}, {intent}{preserve}, {directions[(start + index) % len(directions)]}"
+        for index in range(count)
+    ]
+
+
+def normalize_generated_audio(audio: np.ndarray, peak_limit: float = 0.95) -> np.ndarray:
+    """Remove decoder overs without changing the candidate's relative dynamics."""
+    output = np.nan_to_num(np.asarray(audio, dtype=np.float32))
+    peak = float(np.max(np.abs(output))) if output.size else 0.0
+    if peak > peak_limit:
+        output = output * np.float32(peak_limit / peak)
+    return output.astype(np.float32, copy=False)
 
 
 def fit_source_duration(source: np.ndarray, samples: int) -> np.ndarray:
@@ -175,6 +257,8 @@ class StableAudioGenerator:
         self.batch_size = max(1, batch_size)
         self._model = None
         self._config = None
+        self.last_prompts: list[str] = []
+        self.preserve_locks: set[str] = set()
         self.progress = print
         self.inference_settings = {
             "steps": 4 if fast else 8,
@@ -322,14 +406,25 @@ class StableAudioGenerator:
                 "stable-audio-tools does not expose the required init-audio SDEdit API"
             )
         outputs: list[np.ndarray] = []
+        prompts = variation_prompts(
+            style_text_hint, transform, seed, n, locks=self.preserve_locks
+        )
+        self.last_prompts = prompts
+        settings = {
+            **self.inference_settings,
+            "steps": inference_steps(transform, fast=self.fast),
+            "noise_level": float(transform_to_noise(transform)),
+            "prompt_strategy": "per-candidate-change-axis-v1",
+        }
+        self.last_inference_settings = settings
         index = 0
         active_batch_size = min(self.batch_size, n)
         while index < n:
             size = min(active_batch_size, n - index)
             seeds = list(range(seed + index, seed + index + size))
             conditioning = [
-                {"prompt": style_text_hint, "seconds_start": 0, "seconds_total": duration_s}
-                for _ in seeds
+                {"prompt": item, "seconds_start": 0, "seconds_total": duration_s}
+                for item in prompts[index : index + size]
             ]
             try:
                 with torch.inference_mode():
@@ -342,7 +437,7 @@ class StableAudioGenerator:
                         sample_size,
                         seeds,
                         float(transform_to_noise(transform)),
-                        self.inference_settings,
+                        settings,
                     )
             except RuntimeError as exc:
                 if size == 1 or "out of memory" not in str(exc).lower():
@@ -354,7 +449,10 @@ class StableAudioGenerator:
                 continue
             arrays = audio.detach().float().cpu().numpy()
             expected_samples = round(duration_s * sr)
-            outputs.extend(fit_generated_duration(array, expected_samples) for array in arrays)
+            outputs.extend(
+                normalize_generated_audio(fit_generated_duration(array, expected_samples))
+                for array in arrays
+            )
             index += size
             for completed in range(index - size + 1, index + 1):
                 self.progress(f"PROGRESS {completed}/{n}")
