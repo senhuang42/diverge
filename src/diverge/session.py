@@ -17,6 +17,8 @@ from .features import (
     groove_similarity_envelopes,
     melody_similarity_chroma,
     onset_envelope,
+    tonal_coherence,
+    tonal_coherence_chroma,
 )
 from .generator import GeneratorProtocol, transform_to_noise
 from .locks import active_lock_score, lock_similarities, prepare_lock_source
@@ -115,6 +117,14 @@ def run_session(
                 f"{minimum:.3f} and {maximum:.3f} seconds; received {duration_s:.3f} seconds"
             )
     source_spectral, source_temporal = audio_descriptors(source, sr)
+    source_tonal_coherence = tonal_coherence(source, sr)
+    tonal_gate_enabled = bool(
+        source_tonal_coherence["applicable"]
+        and float(source_tonal_coherence["score"]) >= config.tonal_coherence_threshold
+    )
+    active_coherence_threshold = (
+        config.tonal_coherence_threshold if tonal_gate_enabled else 0.0
+    )
     source_category = (
         "percussive"
         if source_temporal["onset_density"] >= 0.2
@@ -212,7 +222,7 @@ def run_session(
         batch_onsets = (
             [onset_envelope(audio, sr) for audio in batch_audio] if config.references else []
         )
-        batch_chroma = [chroma(audio, sr) for audio in batch_audio] if config.references else []
+        batch_chroma = [chroma(audio, sr) for audio in batch_audio]
         source_similarity = np.clip((embeddings @ source_embedding + 1) / 2, 0, 1)
         if config.references:
             embedding_fit = np.clip((embeddings @ style_embedding + 1) / 2, 0, 1)
@@ -268,10 +278,14 @@ def run_session(
         batch_blend_fit = []
         batch_change_fit = []
         batch_quality = []
+        batch_coherence = []
+        batch_coherence_scores = []
         for offset, (audio, embedding, novelty_score, self_novelty_score) in enumerate(
             zip(batch_audio, embeddings, novelty, self_novelty, strict=True)
         ):
             quality = evaluate_quality(audio, expected_samples)
+            coherence = tonal_coherence_chroma(batch_chroma[offset])
+            coherence_score = float(coherence["score"]) if tonal_gate_enabled else 1.0
             similarities = (
                 lock_similarities(
                     audio,
@@ -286,6 +300,8 @@ def run_session(
             )
             spectral, temporal = audio_descriptors(audio, sr)
             batch_quality.append(quality)
+            batch_coherence.append(coherence)
+            batch_coherence_scores.append(coherence_score)
             batch_similarities.append(similarities)
             if config.references:
                 mix = config.reference_mix / 100
@@ -313,7 +329,10 @@ def run_session(
             else:
                 blend_fit = 0.5
             batch_blend_fit.append(float(blend_fit))
-            batch_change_fit.append(change_alignment_score(float(blend_fit), config.transform))
+            change_similarity = (
+                float(blend_fit) if config.references else float(source_similarity[offset])
+            )
+            batch_change_fit.append(change_alignment_score(change_similarity, config.transform))
             batch_contexts.append(
                 CandidateContext(
                     candidate_embedding=embedding,
@@ -359,6 +378,8 @@ def run_session(
                     self_novelty=float(self_novelty[offset]),
                     locks=similarities,
                     lock_score=lock_score,
+                    tonal_coherence=batch_coherence[offset],
+                    coherence_score=batch_coherence_scores[offset],
                     taste_uncertainty=float(predictions.uncertainty[offset]),
                     taste_evidence=float(predictions.evidence[offset]),
                     taste_mode=predictions.mode_id[offset],
@@ -371,7 +392,9 @@ def run_session(
     model_embeddings = embedder.embed_batch(staging_paths)
     analyze_batch(0, model_embeddings)
     valid_model_count = sum(
-        candidate.lock_score >= config.lock_threshold for candidate in candidates
+        candidate.lock_score >= config.lock_threshold
+        and candidate.coherence_score >= active_coherence_threshold
+        for candidate in candidates
     )
     missing = max(0, config.n_return - valid_model_count)
     if config.guarantee_results and missing:
@@ -418,6 +441,8 @@ def run_session(
         config.lock_threshold,
         config.self_novelty_weight,
         opinion=config.opinion,
+        transform=config.transform,
+        coherence_threshold=active_coherence_threshold,
     )
     records = []
     winner_embeddings = []
@@ -448,6 +473,8 @@ def run_session(
                 "generation_prompt": provenance[candidate.index]["prompt"],
                 "locks": {k: round(v, 6) for k, v in candidate.locks.items()},
                 "lock_score": round(candidate.lock_score, 6),
+                "tonal_coherence": candidate.tonal_coherence,
+                "coherence_score": round(candidate.coherence_score, 6),
                 "novelty": round(candidate.novelty, 6),
                 "self_novelty": round(candidate.self_novelty, 6),
                 "taste": round(candidate.taste, 6),
@@ -509,7 +536,11 @@ def run_session(
             "output_channels": source_channels,
             "expected_samples": expected_samples,
         },
-        "source_analysis": {"descriptors": source_descriptors},
+        "source_analysis": {
+            "descriptors": source_descriptors,
+            "tonal_coherence": source_tonal_coherence,
+            "tonal_gate_enabled": tonal_gate_enabled,
+        },
         "reference_influence": {
             "native_model_audio_direction": bool(
                 getattr(getattr(generator, "capabilities", None), "audio_direction", False)
@@ -538,6 +569,7 @@ def run_session(
         "selection": {
             "lock_threshold_requested": config.lock_threshold,
             "lock_threshold_used": result.threshold_used,
+            "tonal_coherence_threshold": result.coherence_threshold,
             "relaxations": result.relaxations,
             "eligible_count": result.eligible_count,
             "duplicate_similarity_threshold": result.duplicate_similarity_threshold,
@@ -546,6 +578,12 @@ def run_session(
             "shortfall": max(0, result.requested_count - len(result.selected)),
             "can_try_more": len(result.selected) < result.requested_count,
             "quality_rejected_count": sum(not report.passed for report in quality_reports),
+            "coherence_rejected_count": sum(
+                report.passed
+                and candidate.lock_score >= config.lock_threshold
+                and candidate.coherence_score < result.coherence_threshold
+                for candidate, report in zip(candidates, quality_reports, strict=True)
+            ),
             "quality_failure_counts": {
                 reason: sum(reason in report.failures for report in quality_reports)
                 for reason in sorted(

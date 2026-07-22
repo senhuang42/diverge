@@ -81,6 +81,41 @@ def test_change_alignment_reverses_source_similarity_preference() -> None:
     assert change_alignment_score(same, 90) < change_alignment_score(different, 90)
 
 
+def test_maximum_change_targets_a_musical_distance_band() -> None:
+    assert change_alignment_score(0.2, 100) > change_alignment_score(0.0, 100)
+    assert change_alignment_score(0.2, 100) > change_alignment_score(0.8, 100)
+
+
+def test_change_increases_library_novelty_weight_even_without_drift() -> None:
+    familiar = _candidate(0, [1, 0], 0.5, novelty=0.0)
+    novel = _candidate(1, [0, 1], 0.5, novelty=1.0)
+
+    low = select_candidates([familiar, novel], 1, spread=0, drift=0, transform=0)
+    high = select_candidates([familiar, novel], 1, spread=0, drift=0, transform=100)
+
+    assert low.selected[0].index == 0
+    assert high.selected[0].index == 1
+    assert high.weights["novelty"] > low.weights["novelty"]
+
+
+def test_internal_coherence_is_a_hard_gate_separate_from_source_locks() -> None:
+    incoherent = _candidate(0, [1, 0], 1.0)
+    incoherent.coherence_score = 0.44
+    coherent = _candidate(1, [0, 1], 0.2)
+    coherent.coherence_score = 0.7
+
+    result = select_candidates(
+        [incoherent, coherent],
+        2,
+        spread=0,
+        drift=0,
+        coherence_threshold=0.45,
+    )
+
+    assert [candidate.index for candidate in result.selected] == [1]
+    assert result.coherence_threshold == 0.45
+
+
 def test_pairwise_metrics_expose_redundant_batches() -> None:
     candidates = [
         _candidate(0, [1, 0], 0.5),

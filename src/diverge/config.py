@@ -25,6 +25,7 @@ class RunConfig:
     choices_path: Path = Path("choices.jsonl")
     style_text_hint: str = ""
     lock_threshold: float = 0.55
+    tonal_coherence_threshold: float = 0.45
     fast: bool = False
     generation_batch_size: int = 8
     self_novelty_weight: float = 0.05
@@ -62,6 +63,8 @@ class RunConfig:
             raise ValueError("duration_s must be in (0, 30] when provided")
         if not 0 <= self.lock_threshold <= 1:
             raise ValueError("lock_threshold must be in 0..1")
+        if not 0 <= self.tonal_coherence_threshold <= 1:
+            raise ValueError("tonal_coherence_threshold must be in 0..1")
         if not 0 <= self.self_novelty_weight <= 1:
             raise ValueError("self_novelty_weight must be in 0..1")
         if not 0 <= self.opinion <= 100:
@@ -129,7 +132,12 @@ class RunConfig:
         ):
             if normalized.get(key) is not None:
                 normalized[key] = int(normalized[key])
-        for key in ("duration_s", "lock_threshold", "self_novelty_weight"):
+        for key in (
+            "duration_s",
+            "lock_threshold",
+            "tonal_coherence_threshold",
+            "self_novelty_weight",
+        ):
             if normalized.get(key) is not None:
                 normalized[key] = float(normalized[key])
         return cls(**normalized)

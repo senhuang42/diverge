@@ -47,7 +47,9 @@ For a host-free smoke test, open
 1. Drop, record, or choose a source; optionally add a reference or short direction.
 2. With a reference loaded, set **Source / Reference** to choose the full-audio latent blend point:
    Source at 0, an equal hybrid at 50, or Reference at 100. Set **Change** independently to choose
-   how far the variations should move from that point.
+   how far the variations should move from that point. High Change targets a distant musical
+   neighborhood while rejecting melodically incoherent candidates; it does not require retaining
+   the source melody unless Melody is explicitly preserved.
 3. Select **Create 8 variations**. The job continues if the editor closes.
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical

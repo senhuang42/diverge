@@ -55,6 +55,7 @@ def test_config_normalizes_numeric_strings_from_persisted_plugin_state(tmp_path:
             "generation_batch_size": "8",
             "opinion": "50",
             "lock_threshold": "0.55",
+            "tonal_coherence_threshold": "0.48",
             "parent_run_id": "20260714T000400.676948Z",
             "parent_candidate": "5",
         }
@@ -64,6 +65,7 @@ def test_config_normalizes_numeric_strings_from_persisted_plugin_state(tmp_path:
     assert config.reference_mix == 72
     assert config.parent_candidate == 5
     assert config.lock_threshold == 0.55
+    assert config.tonal_coherence_threshold == 0.48
 
 
 def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:

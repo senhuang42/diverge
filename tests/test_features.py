@@ -4,7 +4,12 @@ import librosa
 import numpy as np
 
 from diverge.audio_io import load_audio
-from diverge.features import groove_similarity, melody_similarity, timbre_similarity
+from diverge.features import (
+    groove_similarity,
+    melody_similarity,
+    timbre_similarity,
+    tonal_coherence_chroma,
+)
 
 DATA = Path(__file__).parents[1] / "data"
 
@@ -37,3 +42,28 @@ def test_lowpass_preserves_structure() -> None:
     lowpass, _ = load_audio(DATA / "loop_a_lowpass.wav")
     assert groove_similarity(audio, lowpass, sr) > 0.7
     assert melody_similarity(audio, lowpass, sr) > 0.7
+
+
+def test_tonal_coherence_is_relative_to_the_candidates_own_key() -> None:
+    coherent = np.zeros((12, 8), dtype=np.float32)
+    coherent[[0, 4, 7]] = 1.0
+    chromatic = np.ones((12, 8), dtype=np.float32)
+
+    report = tonal_coherence_chroma(coherent)
+    chromatic_report = tonal_coherence_chroma(chromatic)
+
+    assert report["key"] == "C major"
+    assert report["score"] == 1.0
+    assert chromatic_report["score"] == 0.3
+
+
+def test_silent_chroma_is_not_tonally_applicable() -> None:
+    report = tonal_coherence_chroma(np.zeros((12, 4), dtype=np.float32))
+
+    assert report == {
+        "applicable": False,
+        "key": "unknown",
+        "scale_fit": 0.0,
+        "harmonic_continuity": 0.0,
+        "score": 0.0,
+    }

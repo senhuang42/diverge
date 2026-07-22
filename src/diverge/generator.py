@@ -140,7 +140,10 @@ def variation_prompts(
     if count < 1:
         return []
     if transform >= 70:
-        intent = "radically reimagined variation, new structure and instrumentation"
+        intent = (
+            "radically reimagined but internally coherent composition, deliberate key or mode, "
+            "melody supported by harmony, new structure and instrumentation"
+        )
     elif transform >= 35:
         intent = "clearly reinterpreted variation"
     else:

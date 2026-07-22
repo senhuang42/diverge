@@ -58,6 +58,8 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert all("explanation_evidence" in item for item in manifest["candidates"])
     assert all("source_similarity" in item for item in manifest["candidates"])
     assert all("change_fit" in item for item in manifest["candidates"])
+    assert all("tonal_coherence" in item for item in manifest["candidates"])
+    assert all("coherence_score" in item for item in manifest["candidates"])
     assert all("generation_prompt" in item for item in manifest["candidates"])
     assert all("reference_embedding_fit" in item for item in manifest["candidates"])
     assert all("reference_rhythm_fit" in item for item in manifest["candidates"])
@@ -66,6 +68,8 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert manifest["reference_influence"]["derived_text_direction"] is False
     assert manifest["reference_influence"]["symmetric_morph_prompting"] is True
     assert manifest["reference_influence"]["reference_mix"] == 50
+    assert manifest["selection"]["tonal_coherence_threshold"] == 0.45
+    assert "coherence_rejected_count" in manifest["selection"]
     assert set(manifest["reference_influence"]["selection_component_weights"]) == {
         "embedding",
         "rhythm",
@@ -110,6 +114,7 @@ def test_mock_session_without_references_uses_source_style(tmp_path: Path) -> No
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert len(list(run_dir.glob("cand_*.wav"))) == 2
     assert all(candidate["locks"] == {} for candidate in manifest["candidates"])
+    assert len({candidate["change_fit"] for candidate in manifest["candidates"]}) > 1
 
 
 def test_explicit_duration_crops_the_source_region_before_generation(tmp_path: Path) -> None:

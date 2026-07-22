@@ -19,6 +19,8 @@ class Candidate:
     self_novelty: float = 0.5
     locks: dict[str, float] = field(default_factory=dict)
     lock_score: float = 1.0
+    tonal_coherence: dict[str, float | str | bool] = field(default_factory=dict)
+    coherence_score: float = 1.0
     utility: float = 0.0
     taste_uncertainty: float | None = None
     taste_evidence: float | None = None
@@ -38,6 +40,7 @@ class SelectionResult:
     eligible_count: int
     requested_count: int
     duplicate_similarity_threshold: float
+    coherence_threshold: float
 
 
 def spread_lambda(spread: int) -> float:
@@ -46,10 +49,13 @@ def spread_lambda(spread: int) -> float:
 
 
 def change_alignment_score(source_similarity: float, transform: int) -> float:
-    """Reward source identity at low Change and source distance at high Change."""
+    """Reward a Change-dependent distance band instead of unbounded dissimilarity."""
     change = float(np.clip(transform, 0, 100) / 100)
     similarity = float(np.clip(source_similarity, 0, 1))
-    return (1 - change) * similarity + change * (1 - similarity)
+    actual_distance = 1 - similarity
+    target_distance = 0.05 + 0.75 * change**1.2
+    width = 0.16 + 0.06 * change
+    return float(np.exp(-0.5 * ((actual_distance - target_distance) / width) ** 2))
 
 
 def pairwise_similarity_metrics(candidates: list[Candidate]) -> dict[str, float]:
@@ -73,6 +79,7 @@ def _utility(
     candidate: Candidate,
     drift: int,
     self_novelty_weight: float,
+    transform: int,
     opinion: int | None = None,
     configured_max_taste_weight: float = 0.60,
 ) -> tuple[float, dict[str, float]]:
@@ -84,12 +91,14 @@ def _utility(
         candidate.effective_taste_weight = round(
             float(confidence * evidence_ramp * configured_max_taste_weight * opinion / 100), 6
         )
+    exploration = max(float(np.clip(drift, 0, 100)), float(np.clip(transform, 0, 100))) / 100
     weights = {
         "ref_fit": 0.5,
         "change_fit": 0.4,
         "taste": candidate.effective_taste_weight,
-        "novelty": round(0.2 * (1 + drift / 100) * (drift / 100), 6),
+        "novelty": round(0.2 * (1 + exploration) * exploration, 6),
         "self_novelty": round(self_novelty_weight, 6),
+        "coherence": 0.25,
     }
     value = sum(
         (
@@ -98,6 +107,7 @@ def _utility(
             (candidate.taste - 0.5) * weights["taste"],
             candidate.novelty * weights["novelty"],
             candidate.self_novelty * weights["self_novelty"],
+            candidate.coherence_score * weights["coherence"],
         )
     )
     return round(float(value), 8), weights
@@ -114,6 +124,8 @@ def select_candidates(
     configured_max_taste_weight: float = 0.60,
     allocate_roles: bool = True,
     duplicate_similarity_threshold: float = DUPLICATE_SIMILARITY_THRESHOLD,
+    transform: int = 0,
+    coherence_threshold: float = 0.0,
 ) -> SelectionResult:
     if len(candidates) < n_return:
         raise ValueError("not enough candidates")
@@ -122,12 +134,17 @@ def select_candidates(
             candidate,
             drift,
             self_novelty_weight,
+            transform,
             opinion,
             configured_max_taste_weight,
         )
     # Compatibility constraints are hard gates when supplied by legacy or evaluation callers. A
     # sparse valid pool must produce a smaller set instead of quietly weakening the threshold.
-    survivors = [c for c in candidates if c.lock_score >= lock_threshold]
+    survivors = [
+        c
+        for c in candidates
+        if c.lock_score >= lock_threshold and c.coherence_score >= coherence_threshold
+    ]
     lam = spread_lambda(spread)
     remaining = sorted(survivors, key=lambda c: (-c.utility, c.index))
     if allocate_roles and opinion is not None and n_return == 8 and len(remaining) >= 12:
@@ -168,6 +185,7 @@ def select_candidates(
         eligible_count=len(survivors),
         requested_count=n_return,
         duplicate_similarity_threshold=duplicate_similarity_threshold,
+        coherence_threshold=coherence_threshold,
     )
 
 
