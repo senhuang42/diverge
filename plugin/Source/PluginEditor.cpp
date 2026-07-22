@@ -1190,7 +1190,6 @@ void DivergeAudioProcessorEditor::togglePreview(const juce::File& file, int cand
     const auto sameFile = audioProcessor.previewPath() == file.getFullPathName();
     const auto wasPlaying = audioProcessor.isPreviewPlaying();
     const auto switchInPlace = wasPlaying && !audioProcessor.isPreviewAwaitingBeat();
-    const auto position = wasPlaying ? audioProcessor.previewProgress() : 0.0;
     if (sameFile && wasPlaying)
     {
         audioProcessor.stopPreview();
@@ -1199,7 +1198,6 @@ void DivergeAudioProcessorEditor::togglePreview(const juce::File& file, int cand
     }
     else if (audioProcessor.loadPreview(file, audioSlots[0]))
     {
-        if (switchInPlace) audioProcessor.seekPreview(position);
         audioProcessor.playPreview(!switchInPlace);
         playingCandidate = candidateRank;
         playingSource = source;
