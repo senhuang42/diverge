@@ -54,7 +54,6 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--transform", type=int, default=45)
     run.add_argument("--spread", type=int, default=60)
     run.add_argument("--drift", type=int, default=35)
-    run.add_argument("--locks", default="")
     run.add_argument("--duration", type=float)
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--n-return", type=int, default=8)
@@ -180,7 +179,6 @@ def _config(args: argparse.Namespace) -> RunConfig:
         transform=args.transform,
         spread=args.spread,
         drift=args.drift,
-        locks={item.strip() for item in args.locks.split(",") if item.strip()},
         n_return=args.n_return,
         n_oversample=args.n_oversample or (16 if args.fast else 32),
         duration_s=args.duration,

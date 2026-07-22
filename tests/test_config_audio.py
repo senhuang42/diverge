@@ -75,6 +75,11 @@ def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
     assert fast.locks == set()
 
 
+def test_run_cli_no_longer_exposes_preserve_locks() -> None:
+    with pytest.raises(SystemExit):
+        _parser().parse_args(["run", "--source", "source.wav", "--locks", "groove"])
+
+
 def test_audio_preserves_mono_and_resamples_float(tmp_path: Path) -> None:
     path = save_audio(tmp_path / "audio.wav", np.ones(22_050, dtype=np.float32) * 0.2, 22_050)
     audio, sr = load_audio(path)
