@@ -799,25 +799,28 @@ void DivergeAudioProcessorEditor::resized()
         renderBackground();
 
     scrim.setBounds(getLocalBounds());
+    // Status never floats over the work. On the sheet it takes the empty right half of the
+    // toolbar; on the brief it takes the empty middle of the header, between the promise and
+    // the local stamp. Both bands are otherwise unused at every supported width.
     if (!showPrepare && !settingsPanel.isVisible())
     {
-        // On the sheet, status takes the empty right half of the toolbar rather than floating
-        // over the takes. A notice that covers the work is worse than no notice.
         const auto width = juce::jmin(560, getWidth() - 320);
         toast.setBounds(getWidth() - 24 - width, 88, width, 42);
     }
     else
     {
-        toast.setBounds(getLocalBounds()
-                            .withSizeKeepingCentre(juce::jmin(620, getWidth() - 96), 54)
-                            .withY(getHeight() - 84));
+        // The promise line yields width before the status band does, so a long notice still
+        // fits at the narrowest supported size instead of being squeezed into an ellipsis.
+        const auto left = 76 + juce::jlimit(0, 446, getWidth() - 660) + 16;
+        const auto right = juce::jmax(left + 120, getWidth() - 170);
+        toast.setBounds(left, 24, right - left, 40);
     }
 
     auto area = getLocalBounds().reduced(24);
     auto header = area.removeFromTop(40);
     header.removeFromLeft(52);
     brandLabel.setBounds(header.removeFromLeft(126));
-    promiseLabel.setBounds(header.removeFromLeft(446));
+    promiseLabel.setBounds(header.removeFromLeft(juce::jlimit(0, 446, getWidth() - 660)));
     settingsButton.setBounds(header.removeFromRight(44));
     header.removeFromRight(8);
     localBadge.setBounds(header.removeFromRight(82));
