@@ -3,28 +3,55 @@
 #include "WorkflowModel.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 
+// Diverge reads as a photographic contact sheet: eight takes of one idea, laid out to be
+// scanned, compared, and marked. The ground is warm darkroom graphite rather than the
+// blue-black-plus-neon that plugin chrome defaults to. Colour is spent on exactly two jobs.
+// Chinagraph red is the grease pencil: it appears only where a person made a decision, and
+// the mark's shape carries the meaning so the state survives without colour vision. Safelight
+// amber reports what the machine is doing. Focus is not a colour at all; the frame under the
+// loupe simply lifts toward paper white. Everything else is neutral, which is what gives the
+// two accents their force.
 namespace DivergeTheme
 {
-// Layered darks, cool blue-black studio canvas.
-inline const juce::Colour canvas { 0xff0a0d12 };
-inline const juce::Colour canvasHi { 0xff0e131a };
-inline const juce::Colour surface { 0xff121821 };
-inline const juce::Colour raised { 0xff1a222d };
-inline const juce::Colour hairline { 0xff202a35 };
-inline const juce::Colour edge { 0xff2d3945 };
-inline const juce::Colour text { 0xffeef4f1 };
-inline const juce::Colour muted { 0xff8d9aa6 };
-inline const juce::Colour dim { 0xff5d6a76 };
-inline const juce::Colour exploration { 0xff4fe6c0 };
-inline const juce::Colour explorationSoft { 0xff123229 };
-inline const juce::Colour decision { 0xffffab5e };
-inline const juce::Colour decisionSoft { 0xff33261a };
-inline const juce::Colour pass { 0xff7c8790 };
-inline const juce::Colour danger { 0xffff6f66 };
-inline constexpr float radius = 12.0f;
-inline constexpr int space = 8;
+// Warm graphite ramp. Hue stays around 40 degrees at very low chroma so the neutrals read as
+// paper stock and darkroom board rather than as cool screen grey.
+inline const juce::Colour canvas { 0xff151310 };   // deepest ground
+inline const juce::Colour canvasHi { 0xff1b1814 }; // ground, lit side
+inline const juce::Colour surface { 0xff201d18 };  // the sheet frames sit on
+inline const juce::Colour raised { 0xff2a2620 };   // a frame cell
+inline const juce::Colour hairline { 0xff322d25 }; // quiet rule
+inline const juce::Colour edge { 0xff443d32 };     // stated rule
+inline const juce::Colour text { 0xfff4f0e7 };     // photographic paper white
+inline const juce::Colour muted { 0xffa79d8b };
+inline const juce::Colour dim { 0xff6e6656 };
+
+// The grease pencil. Rare by design: a person decided something here.
+inline const juce::Colour exploration { 0xffff4a26 };
+inline const juce::Colour explorationSoft { 0xff3b180e };
+// Safelight. The machine is working, or wants attention.
+inline const juce::Colour decision { 0xfff0a93c };
+inline const juce::Colour decisionSoft { 0xff38260f };
+inline const juce::Colour pass { 0xff6e6656 };
+inline const juce::Colour danger { 0xffff4a26 };
+
+// Radii stay in the 12-16px band for panels and frames; pills are for small controls only.
+inline constexpr float radius = 13.0f;
+// Four-unit base. An eight-only scale misses the middle steps that make tight groups tight.
+inline constexpr int space = 4;
+
+// One ramp with obvious steps, so a role is recognisable before the copy is read.
+namespace Type
+{
+inline constexpr float display = 26.0f;
+inline constexpr float title = 17.0f;
+inline constexpr float lead = 15.0f;
+inline constexpr float body = 13.5f;
+inline constexpr float meta = 12.0f;
+inline constexpr float caps = 10.5f;
+}
 
 juce::Font display(float size);
+juce::Font title(float size);
 juce::Font label(float size);
 juce::Font body(float size);
 juce::Font bodyBold(float size);
@@ -33,8 +60,13 @@ juce::Font monoBold(float size);
 
 bool reducedMotion();
 float approach(float current, float target, float rate);
-void paintInnerGlow(juce::Graphics&, juce::Rectangle<float> bounds, float cornerRadius,
-                    juce::Colour colour, float intensity);
+
+// Real depth: an offset and a soft blur. Used only where something genuinely floats above
+// the sheet, and never on an element that also states a border.
+void paintDropShadow(juce::Graphics&, juce::Rectangle<float> bounds, float cornerRadius,
+                     float blur, float offsetY, float opacity);
+// Crisp keyboard focus ring. Not a glow: it has no blur and it reads at a glance.
+void paintFocusRing(juce::Graphics&, juce::Rectangle<float> bounds, float cornerRadius);
 }
 
 class DivergeLookAndFeel final : public juce::LookAndFeel_V4, private juce::Timer
@@ -89,7 +121,7 @@ public:
     void paint(juce::Graphics&) override;
 };
 
-// Small card showing one subsystem's health: eyebrow title, state dot, body copy.
+// Small card showing one subsystem's health: title, state dot, body copy.
 class StatusCard final : public juce::Component
 {
 public:
@@ -112,6 +144,8 @@ public:
     void mouseDown(const juce::MouseEvent&) override;
 };
 
+// One frame on the contact sheet. Carries its own take number, waveform, transport, and the
+// grease-pencil mark a decision leaves on it.
 class WaveformCard final : public juce::Component
 {
 public:
@@ -138,6 +172,8 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
 
 private:
+    void paintMark(juce::Graphics&, juce::Rectangle<float> bounds) const;
+
     juce::String heading;
     juce::String prompt;
     juce::String supportingText;

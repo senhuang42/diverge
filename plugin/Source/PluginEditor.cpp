@@ -517,8 +517,8 @@ void DivergeAudioProcessorEditor::configureUi()
     dragButton.onClick = [this] { dragSelected(); };
     tighterButton.onClick = [this] { adjustRange(-20); };
     widerButton.onClick = [this] { adjustRange(20); };
-    keepButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::decision);
-    keepButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
+    // One filled action per screen. Keep is a mark the user makes on a take, so it stays an
+    // outline control here and shows its result as the grease-pencil ring on the frame itself.
     dragButton.setColour(juce::TextButton::buttonColourId, DivergeTheme::exploration);
     dragButton.setColour(juce::TextButton::textColourOffId, DivergeTheme::canvas);
     for (auto* button : { &abButton, &passButton, &keepButton, &dragButton })
@@ -666,30 +666,13 @@ void DivergeAudioProcessorEditor::renderBackground()
     const auto w = static_cast<float>(width);
     const auto h = static_cast<float>(height);
 
-    g.setGradientFill({ DivergeTheme::canvasHi, 0.0f, 0.0f, DivergeTheme::canvas, 0.0f, h, false });
+    // The board the sheet is laid on: an even ground, lit very slightly from the top left the
+    // way a bench lamp would. No bloom and no rays, so the only glowing thing on the surface
+    // is nothing at all and the marks keep their force.
+    g.setGradientFill(juce::ColourGradient(DivergeTheme::canvasHi, w * 0.22f, 0.0f,
+                                           DivergeTheme::canvas, w * 0.75f, h, false));
     g.fillAll();
-
-    // Soft accent bloom behind the header.
-    g.setGradientFill(juce::ColourGradient(DivergeTheme::exploration.withAlpha(0.05f), 110.0f, 30.0f,
-                                           juce::Colours::transparentBlack, w * 0.62f, h * 0.72f, true));
-    g.fillRect(0, 0, width, height);
-
-    // Divergence rays fanning out from the brand mark.
-    const juce::Point<float> origin(30.0f, 44.0f);
-    for (int ray = 0; ray < 7; ++ray)
-    {
-        const auto angle = juce::degreesToRadians(74.0f + static_cast<float>(ray) * 6.5f);
-        const auto end = origin.getPointOnCircumference(w * 1.4f, angle);
-        g.setGradientFill(juce::ColourGradient(DivergeTheme::exploration.withAlpha(0.05f), origin.x, origin.y,
-                                               juce::Colours::transparentBlack, end.x, end.y, false));
-        g.drawLine({ origin, end }, 1.0f);
-    }
-
-    // Vignette keeps focus in the working area.
-    juce::ColourGradient vignette(juce::Colours::transparentBlack, w * 0.5f, h * 0.42f,
-                                  juce::Colour(0xff05070a).withAlpha(0.5f), 0.0f, h, true);
-    g.setGradientFill(vignette);
-    g.fillRect(0, 0, width, height);
+    juce::ignoreUnused(width, height);
 }
 
 void DivergeAudioProcessorEditor::paint(juce::Graphics& g)

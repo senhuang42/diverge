@@ -2,20 +2,42 @@
 
 namespace DivergeTheme
 {
-juce::Font display(float size)
+namespace
 {
-    return juce::Font(juce::FontOptions(size).withStyle("Bold")).withExtraKerningFactor(0.08f);
+// A workhorse grotesque carries an Operate surface better than a display face with opinions.
+// The contact-sheet voice comes from the marks and the layout, not from the letterforms.
+const juce::String& uiTypeface()
+{
+    static const juce::String name = []
+    {
+        const auto available = juce::Font::findAllTypefaceNames();
+        for (const auto* candidate : { "Helvetica Neue", "Helvetica", "Arial" })
+            if (available.contains(candidate)) return juce::String(candidate);
+        return juce::Font::getDefaultSansSerifFontName();
+    }();
+    return name;
 }
 
-juce::Font label(float size)
+juce::Font make(float size, const juce::String& style)
 {
-    return juce::Font(juce::FontOptions(size).withStyle("Bold")).withExtraKerningFactor(0.14f);
+    return juce::Font(juce::FontOptions(uiTypeface(), size, juce::Font::plain).withStyle(style));
+}
 }
 
-juce::Font body(float size) { return juce::Font(juce::FontOptions(size)); }
+// Tracking floor is -0.04em; -0.02em reads better at display size and is where this stops.
+juce::Font display(float size) { return make(size, "Bold").withExtraKerningFactor(-0.02f); }
 
-juce::Font bodyBold(float size) { return juce::Font(juce::FontOptions(size).withStyle("Bold")); }
+juce::Font title(float size) { return make(size, "Bold").withExtraKerningFactor(-0.01f); }
 
+// Tracked caps are a named kicker, not section grammar. Used for the transport legend and
+// the take badges only.
+juce::Font label(float size) { return make(size, "Bold").withExtraKerningFactor(0.12f); }
+
+juce::Font body(float size) { return make(size, "Regular"); }
+
+juce::Font bodyBold(float size) { return make(size, "Bold"); }
+
+// Monospace is reserved for what it is for: take numbers, timings, and filesystem paths.
 juce::Font mono(float size)
 {
     return juce::Font(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), size, juce::Font::plain));
@@ -39,16 +61,22 @@ float approach(float current, float target, float rate)
     return std::abs(next - target) < 0.004f ? target : next;
 }
 
-void paintInnerGlow(juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
-                    juce::Colour colour, float intensity)
+void paintDropShadow(juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
+                     float blur, float offsetY, float opacity)
 {
-    for (int ring = 1; ring <= 3; ++ring)
-    {
-        g.setColour(colour.withAlpha(intensity * 0.09f / static_cast<float>(ring)));
-        g.drawRoundedRectangle(bounds.reduced(static_cast<float>(ring)),
-                               juce::jmax(2.0f, cornerRadius - static_cast<float>(ring)),
-                               1.0f + static_cast<float>(ring));
-    }
+    juce::Path shape;
+    shape.addRoundedRectangle(bounds, cornerRadius);
+    juce::DropShadow(juce::Colours::black.withAlpha(opacity),
+                     juce::roundToInt(blur), { 0, juce::roundToInt(offsetY) })
+        .drawForPath(g, shape);
+}
+
+void paintFocusRing(juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
+{
+    g.setColour(canvas);
+    g.drawRoundedRectangle(bounds.expanded(1.5f), cornerRadius + 1.5f, 3.0f);
+    g.setColour(text);
+    g.drawRoundedRectangle(bounds.expanded(1.5f), cornerRadius + 1.5f, 1.5f);
 }
 }
 
@@ -60,14 +88,22 @@ DivergeLookAndFeel::DivergeLookAndFeel()
     setColour(juce::TextButton::textColourOnId, DivergeTheme::exploration);
     setColour(juce::Label::textColourId, DivergeTheme::text);
     setColour(juce::TextEditor::textColourId, DivergeTheme::text);
-    setColour(juce::TextEditor::backgroundColourId, DivergeTheme::surface);
-    setColour(juce::TextEditor::outlineColourId, DivergeTheme::hairline);
-    setColour(juce::TextEditor::focusedOutlineColourId, DivergeTheme::exploration);
+    setColour(juce::TextEditor::backgroundColourId, DivergeTheme::canvas);
+    setColour(juce::TextEditor::outlineColourId, DivergeTheme::edge);
+    setColour(juce::TextEditor::focusedOutlineColourId, DivergeTheme::text);
     setColour(juce::TextEditor::highlightColourId, DivergeTheme::explorationSoft);
     setColour(juce::Slider::textBoxTextColourId, DivergeTheme::text);
     setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     setColour(juce::CaretComponent::caretColourId, DivergeTheme::exploration);
+    setColour(juce::PopupMenu::backgroundColourId, DivergeTheme::raised);
+    setColour(juce::PopupMenu::textColourId, DivergeTheme::text);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, DivergeTheme::explorationSoft);
+    setColour(juce::PopupMenu::highlightedTextColourId, DivergeTheme::text);
+    setColour(juce::ComboBox::backgroundColourId, DivergeTheme::raised);
+    setColour(juce::ComboBox::textColourId, DivergeTheme::text);
+    setColour(juce::ComboBox::outlineColourId, DivergeTheme::edge);
+    setColour(juce::ComboBox::arrowColourId, DivergeTheme::muted);
 }
 
 DivergeLookAndFeel::~DivergeLookAndFeel() { stopTimer(); }
@@ -115,77 +151,94 @@ void DivergeLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& b
 {
     auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
     const auto hover = animatedMix(button, button.isEnabled() && (highlighted || down) ? 1.0f : 0.0f);
-    if (down) bounds = bounds.withTrimmedTop(1.0f);
+    const auto corner = juce::jmin(9.0f, bounds.getHeight() * 0.32f);
+    const auto filled = background == DivergeTheme::exploration;
 
-    const auto isAccent = background == DivergeTheme::exploration || background == DivergeTheme::decision;
-    auto colour = background;
-    if (!button.isEnabled()) colour = DivergeTheme::surface;
-    else colour = colour.brighter(hover * (isAccent ? 0.10f : 0.14f) + (down ? 0.05f : 0.0f));
+    if (!button.isEnabled())
+    {
+        // A disabled control states its edge and nothing else, so it never competes for a click.
+        g.setColour(DivergeTheme::hairline.withAlpha(0.5f));
+        g.drawRoundedRectangle(bounds, corner, 1.0f);
+        return;
+    }
 
-    const auto corner = DivergeTheme::radius - 2.0f;
-    g.setGradientFill({ colour.brighter(isAccent ? 0.06f : 0.05f), bounds.getX(), bounds.getY(),
-                        colour.darker(0.10f), bounds.getX(), bounds.getBottom(), false });
-    g.fillRoundedRectangle(bounds, corner);
+    if (filled)
+    {
+        // The one decisive act on the surface. Flat chinagraph, no gradient, no halo: it reads
+        // as a mark laid down rather than as a lozenge of chrome.
+        DivergeTheme::paintDropShadow(g, bounds.reduced(2.0f), corner, 12.0f, 3.0f, 0.4f);
+        g.setColour(background.brighter(hover * 0.12f + (down ? 0.06f : 0.0f)));
+        g.fillRoundedRectangle(bounds, corner);
+    }
+    else
+    {
+        // Secondary controls are outlines on the ground. Elevation is declared once, as a rule.
+        g.setColour(DivergeTheme::surface.withAlpha(0.5f + hover * 0.5f));
+        g.fillRoundedRectangle(bounds, corner);
+        g.setColour(DivergeTheme::edge.interpolatedWith(DivergeTheme::muted, hover * 0.6f));
+        g.drawRoundedRectangle(bounds, corner, 1.0f);
+    }
 
-    if (isAccent && button.isEnabled())
-        DivergeTheme::paintInnerGlow(g, bounds, corner, juce::Colours::white, 0.6f + hover * 0.6f);
-
-    const auto focused = button.hasKeyboardFocus(true);
-    if (focused)
-        DivergeTheme::paintInnerGlow(g, bounds, corner, DivergeTheme::exploration, 1.2f);
-    g.setColour(focused ? DivergeTheme::exploration
-                        : isAccent ? colour.brighter(0.25f).withAlpha(0.9f)
-                                   : DivergeTheme::edge.withMultipliedAlpha(0.7f + hover * 0.3f));
-    g.drawRoundedRectangle(bounds, corner, focused ? 1.5f : 1.0f);
+    if (button.hasKeyboardFocus(true))
+        DivergeTheme::paintFocusRing(g, bounds, corner);
 }
 
 void DivergeLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool)
 {
+    const auto filled = button.findColour(juce::TextButton::buttonColourId) == DivergeTheme::exploration;
     g.setColour(button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
                                                           : juce::TextButton::textColourOffId)
-                    .withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.55f));
-    g.setFont(DivergeTheme::bodyBold(13.5f));
-    g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(10, 2),
+                    .withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.4f));
+    g.setFont(DivergeTheme::bodyBold(filled ? DivergeTheme::Type::body + 0.5f : DivergeTheme::Type::body));
+    g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(12, 2),
                      juce::Justification::centred, 1);
 }
 
 void DivergeLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
                                            bool highlighted, bool down)
 {
-    auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+    auto bounds = button.getLocalBounds().toFloat().reduced(1.0f);
     const auto hover = animatedMix(button, button.isEnabled() && (highlighted || down) ? 1.0f : 0.0f);
     const auto on = button.getToggleState();
-    const auto corner = bounds.getHeight() * 0.5f;
+    const auto corner = 9.0f;
 
-    auto fill = on ? DivergeTheme::explorationSoft : DivergeTheme::surface;
-    g.setColour(fill.brighter(hover * 0.08f));
+    // A preserve lock is held or it is not. Held reads as paper: the frame is lit, not tinted.
+    g.setColour(on ? DivergeTheme::raised.brighter(0.06f + hover * 0.05f)
+                   : DivergeTheme::surface.withAlpha(0.45f + hover * 0.4f));
     g.fillRoundedRectangle(bounds, corner);
-    if (on)
-        DivergeTheme::paintInnerGlow(g, bounds, corner, DivergeTheme::exploration, 0.9f);
-    const auto focused = button.hasKeyboardFocus(true);
-    g.setColour(on || focused ? DivergeTheme::exploration.withAlpha(focused ? 1.0f : 0.75f)
-                              : DivergeTheme::edge.withMultipliedAlpha(0.8f + hover * 0.2f));
-    g.drawRoundedRectangle(bounds, corner, focused ? 1.5f : 1.1f);
+    g.setColour(on ? DivergeTheme::text.withAlpha(0.85f)
+                   : DivergeTheme::edge.interpolatedWith(DivergeTheme::muted, hover * 0.6f));
+    g.drawRoundedRectangle(bounds, corner, on ? 1.4f : 1.0f);
 
-    // Indicator dot leads the label so state reads without colour vision.
-    auto content = button.getLocalBounds().reduced(14, 2).toFloat();
-    const auto dot = juce::Rectangle<float>(7.0f, 7.0f).withCentre({ content.getX() + 4.0f, content.getCentreY() });
+    // The state is a filled or open square, so it survives without colour vision.
+    auto content = bounds.reduced(15.0f, 0.0f);
+    const auto box = juce::Rectangle<float>(9.0f, 9.0f)
+                         .withCentre({ content.getX() + 4.5f, content.getCentreY() });
     if (on)
     {
-        g.setColour(DivergeTheme::exploration);
-        g.fillEllipse(dot);
-        g.setColour(DivergeTheme::exploration.withAlpha(0.35f));
-        g.drawEllipse(dot.expanded(2.5f), 1.2f);
+        g.setColour(DivergeTheme::text);
+        g.fillRoundedRectangle(box, 2.0f);
+        g.setColour(DivergeTheme::canvas);
+        juce::Path tick;
+        tick.startNewSubPath(box.getX() + 2.2f, box.getCentreY());
+        tick.lineTo(box.getCentreX() - 0.4f, box.getBottom() - 2.4f);
+        tick.lineTo(box.getRight() - 1.8f, box.getY() + 2.4f);
+        g.strokePath(tick, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
     }
     else
     {
-        g.setColour(DivergeTheme::dim);
-        g.drawEllipse(dot, 1.2f);
+        g.setColour(DivergeTheme::dim.brighter(hover * 0.3f));
+        g.drawRoundedRectangle(box, 2.0f, 1.3f);
     }
+
     g.setColour(on ? DivergeTheme::text : DivergeTheme::muted.brighter(hover * 0.25f));
-    g.setFont(DivergeTheme::bodyBold(13.0f));
-    g.drawFittedText(button.getButtonText(), content.withTrimmedLeft(14.0f).toNearestInt(),
+    g.setFont(DivergeTheme::bodyBold(DivergeTheme::Type::body));
+    g.drawFittedText(button.getButtonText(), content.withTrimmedLeft(16.0f).toNearestInt(),
                      juce::Justification::centred, 1);
+
+    if (button.hasKeyboardFocus(true))
+        DivergeTheme::paintFocusRing(g, bounds, corner);
 }
 
 void DivergeLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -194,33 +247,33 @@ void DivergeLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int w
 {
     const auto hover = animatedMix(slider, slider.isMouseOverOrDragging() ? 1.0f : 0.0f);
     const auto track = juce::Rectangle<float>(static_cast<float>(x),
-                                              static_cast<float>(y + height / 2) - 2.5f,
-                                              static_cast<float>(width), 5.0f).reduced(10.0f, 0.0f);
-    g.setColour(DivergeTheme::hairline.brighter(0.06f));
-    g.fillRoundedRectangle(track, 2.5f);
+                                              static_cast<float>(y + height / 2) - 1.5f,
+                                              static_cast<float>(width), 3.0f).reduced(11.0f, 0.0f);
+    g.setColour(DivergeTheme::hairline);
+    g.fillRoundedRectangle(track, 1.5f);
 
-    auto active = track.withWidth(juce::jmax(4.0f, sliderPosition - track.getX()));
-    g.setGradientFill({ DivergeTheme::exploration.darker(0.25f), active.getX(), active.getY(),
-                        DivergeTheme::exploration, active.getRight(), active.getY(), false });
-    g.fillRoundedRectangle(active, 2.5f);
+    // The travelled part of the range is the mark the hand has made on the dial.
+    auto active = track.withWidth(juce::jmax(3.0f, sliderPosition - track.getX()));
+    g.setColour(DivergeTheme::exploration);
+    g.fillRoundedRectangle(active, 1.5f);
 
     const juce::Point<float> centre { sliderPosition, track.getCentreY() };
-    g.setColour(DivergeTheme::exploration.withAlpha(0.12f + hover * 0.14f));
-    g.fillEllipse(juce::Rectangle<float>(30.0f, 30.0f).withCentre(centre));
+    const auto knob = juce::Rectangle<float>(18.0f, 18.0f).withCentre(centre);
+    DivergeTheme::paintDropShadow(g, knob.reduced(2.0f), 9.0f, 8.0f, 2.0f, 0.45f);
     g.setColour(DivergeTheme::text);
-    g.fillEllipse(juce::Rectangle<float>(15.0f, 15.0f).withCentre(centre));
+    g.fillEllipse(knob.reduced(2.0f - hover * 0.8f));
     g.setColour(DivergeTheme::exploration);
-    g.drawEllipse(juce::Rectangle<float>(15.0f, 15.0f).withCentre(centre), 1.4f);
+    g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre(centre));
     if (slider.hasKeyboardFocus(true))
     {
-        g.setColour(DivergeTheme::exploration);
-        g.drawEllipse(juce::Rectangle<float>(22.0f, 22.0f).withCentre(centre), 1.5f);
+        g.setColour(DivergeTheme::text);
+        g.drawEllipse(knob.expanded(3.0f), 1.5f);
     }
 }
 
 void DivergeLookAndFeel::drawCornerResizer(juce::Graphics& g, int width, int height, bool, bool)
 {
-    g.setColour(DivergeTheme::dim.withAlpha(0.55f));
+    g.setColour(DivergeTheme::dim.withAlpha(0.5f));
     const auto w = static_cast<float>(width);
     const auto h = static_cast<float>(height);
     for (float inset = 1.0f; inset < 3.5f; inset += 1.0f)
@@ -231,7 +284,7 @@ void DivergeLookAndFeel::fillTextEditorBackground(juce::Graphics& g, int width, 
 {
     g.setColour(editor.findColour(juce::TextEditor::backgroundColourId));
     g.fillRoundedRectangle(juce::Rectangle<float>(0.0f, 0.0f, static_cast<float>(width),
-                                                   static_cast<float>(height)), DivergeTheme::radius - 2.0f);
+                                                   static_cast<float>(height)), 9.0f);
 }
 
 void DivergeLookAndFeel::drawTextEditorOutline(juce::Graphics& g, int width, int height, juce::TextEditor& editor)
@@ -239,10 +292,8 @@ void DivergeLookAndFeel::drawTextEditorOutline(juce::Graphics& g, int width, int
     const auto bounds = juce::Rectangle<float>(0.5f, 0.5f, static_cast<float>(width - 1),
                                                static_cast<float>(height - 1));
     const auto focused = editor.hasKeyboardFocus(true);
-    if (focused)
-        DivergeTheme::paintInnerGlow(g, bounds, DivergeTheme::radius - 2.0f, DivergeTheme::exploration, 1.1f);
-    g.setColour(focused ? DivergeTheme::exploration : DivergeTheme::hairline.brighter(0.08f));
-    g.drawRoundedRectangle(bounds, DivergeTheme::radius - 2.0f, focused ? 1.4f : 1.0f);
+    g.setColour(focused ? DivergeTheme::text : DivergeTheme::edge);
+    g.drawRoundedRectangle(bounds, 9.0f, focused ? 1.6f : 1.0f);
 }
 
 ToastOverlay::ToastOverlay()
@@ -278,38 +329,29 @@ void ToastOverlay::timerCallback()
 void ToastOverlay::paint(juce::Graphics& g)
 {
     if (slide <= 0.01f) return;
-    const auto font = DivergeTheme::bodyBold(13.0f);
+    const auto font = DivergeTheme::bodyBold(DivergeTheme::Type::body);
     juce::GlyphArrangement measure;
     measure.addLineOfText(font, text, 0.0f, 0.0f);
     const auto textWidth = measure.getBoundingBox(0, -1, true).getWidth();
     auto pill = getLocalBounds().toFloat().reduced(6.0f, 4.0f)
-                    .translated(0.0f, (slide - 1.0f) * 12.0f);
-    pill = pill.withSizeKeepingCentre(juce::jmin(pill.getWidth(), textWidth + 88.0f), pill.getHeight());
+                    .translated(0.0f, (1.0f - slide) * 14.0f);
+    pill = pill.withSizeKeepingCentre(juce::jmin(pill.getWidth(), textWidth + 60.0f), pill.getHeight());
     const auto corner = pill.getHeight() * 0.5f;
-    juce::Path shape;
-    shape.addRoundedRectangle(pill, corner);
-    juce::DropShadow(juce::Colours::black.withAlpha(0.45f * slide), 14, { 0, 4 }).drawForPath(g, shape);
-    g.setColour(DivergeTheme::raised.withAlpha(0.98f * slide));
-    g.fillPath(shape);
-    g.setColour(DivergeTheme::exploration.withAlpha(0.55f * slide));
-    g.drawRoundedRectangle(pill, corner, 1.0f);
-    g.setColour(DivergeTheme::exploration.withAlpha(slide));
-    g.fillEllipse(juce::Rectangle<float>(6.0f, 6.0f).withCentre({ pill.getX() + 18.0f, pill.getCentreY() }));
+    DivergeTheme::paintDropShadow(g, pill, corner, 20.0f, 6.0f, 0.5f * slide);
+    g.setColour(DivergeTheme::raised.brighter(0.08f).withAlpha(slide));
+    g.fillRoundedRectangle(pill, corner);
     g.setColour(DivergeTheme::text.withAlpha(slide));
     g.setFont(font);
-    g.drawFittedText(text, pill.toNearestInt().reduced(30, 2), juce::Justification::centred, 1);
+    g.drawFittedText(text, pill.toNearestInt().reduced(24, 2), juce::Justification::centred, 1);
 }
 
 void PanelSurface::paint(juce::Graphics& g)
 {
-    const auto bounds = getLocalBounds().toFloat().reduced(0.5f);
-    g.setGradientFill({ DivergeTheme::surface.brighter(0.03f), bounds.getX(), bounds.getY(),
-                        DivergeTheme::surface, bounds.getX(), bounds.getBottom(), false });
+    const auto bounds = getLocalBounds().toFloat().reduced(1.0f);
+    // A panel genuinely floats, so it takes the shadow and states no border.
+    DivergeTheme::paintDropShadow(g, bounds, DivergeTheme::radius, 28.0f, 10.0f, 0.55f);
+    g.setColour(DivergeTheme::surface);
     g.fillRoundedRectangle(bounds, DivergeTheme::radius);
-    g.setColour(DivergeTheme::edge.withAlpha(0.9f));
-    g.drawRoundedRectangle(bounds, DivergeTheme::radius, 1.0f);
-    g.setColour(juce::Colours::white.withAlpha(0.03f));
-    g.drawRoundedRectangle(bounds.reduced(1.0f), DivergeTheme::radius - 1.0f, 1.0f);
 }
 
 void StatusCard::set(juce::String nextTitle, juce::String nextBody, State nextState)
@@ -325,48 +367,36 @@ void StatusCard::set(juce::String nextTitle, juce::String nextBody, State nextSt
 
 void StatusCard::paint(juce::Graphics& g)
 {
-    auto bounds = getLocalBounds().toFloat().reduced(1.0f);
-    g.setGradientFill({ DivergeTheme::surface.interpolatedWith(DivergeTheme::raised, 0.55f),
-                        bounds.getX(), bounds.getY(),
-                        DivergeTheme::surface, bounds.getX(), bounds.getBottom(), false });
+    const auto bounds = getLocalBounds().toFloat().reduced(1.0f);
+    g.setColour(DivergeTheme::canvas.withAlpha(0.6f));
     g.fillRoundedRectangle(bounds, DivergeTheme::radius);
-    const auto tint = state == State::ok ? DivergeTheme::exploration
-                    : state == State::attention ? DivergeTheme::decision
-                                                : DivergeTheme::edge;
-    if (state == State::attention)
-        DivergeTheme::paintInnerGlow(g, bounds, DivergeTheme::radius, tint, 0.8f);
-    g.setColour(state == State::neutral ? DivergeTheme::edge.withAlpha(0.8f) : tint.withAlpha(0.55f));
+    g.setColour(state == State::attention ? DivergeTheme::decision.withAlpha(0.7f) : DivergeTheme::hairline);
     g.drawRoundedRectangle(bounds, DivergeTheme::radius, 1.0f);
 
-    auto content = getLocalBounds().reduced(16, 13);
-    auto titleRow = content.removeFromTop(16);
+    auto content = getLocalBounds().reduced(16, 14);
+    auto titleRow = content.removeFromTop(18);
+    // Filled dot means the subsystem has something to say; open means it is simply idle.
+    const auto tint = state == State::ok ? DivergeTheme::text
+                    : state == State::attention ? DivergeTheme::decision
+                                                : DivergeTheme::dim;
     const auto dot = juce::Rectangle<float>(7.0f, 7.0f)
                          .withCentre({ static_cast<float>(titleRow.getX()) + 3.5f,
                                        static_cast<float>(titleRow.getCentreY()) });
-    if (state == State::neutral)
-    {
-        g.setColour(DivergeTheme::dim);
-        g.drawEllipse(dot, 1.2f);
-    }
-    else
-    {
-        g.setColour(tint);
-        g.fillEllipse(dot);
-        g.setColour(tint.withAlpha(0.3f));
-        g.drawEllipse(dot.expanded(2.5f), 1.0f);
-    }
-    g.setColour(DivergeTheme::muted);
-    g.setFont(DivergeTheme::label(10.0f));
-    g.drawText(title.toUpperCase(), titleRow.withTrimmedLeft(16), juce::Justification::centredLeft, false);
-    content.removeFromTop(7);
-    g.setColour(state == State::attention ? DivergeTheme::text : DivergeTheme::muted.brighter(0.1f));
-    g.setFont(DivergeTheme::body(12.5f));
+    g.setColour(tint);
+    if (state == State::neutral) g.drawEllipse(dot, 1.2f);
+    else g.fillEllipse(dot);
+    g.setColour(DivergeTheme::text);
+    g.setFont(DivergeTheme::bodyBold(DivergeTheme::Type::body));
+    g.drawText(title, titleRow.withTrimmedLeft(16), juce::Justification::centredLeft, false);
+    content.removeFromTop(6);
+    g.setColour(state == State::attention ? DivergeTheme::text : DivergeTheme::muted);
+    g.setFont(DivergeTheme::body(DivergeTheme::Type::meta));
     g.drawFittedText(body, content, juce::Justification::topLeft, 3);
 }
 
 void ScrimOverlay::paint(juce::Graphics& g)
 {
-    g.fillAll(DivergeTheme::canvas.withAlpha(0.6f));
+    g.fillAll(juce::Colours::black.withAlpha(0.55f));
 }
 
 void ScrimOverlay::mouseDown(const juce::MouseEvent&)
@@ -446,94 +476,118 @@ void WaveformCard::advanceAnimation()
     }
 }
 
+// The grease pencil. Drawn slightly off-square and with an open stroke so it reads as a hand
+// mark on top of the frame rather than as another piece of chrome inside it. Shape alone says
+// which decision was made, which is why these never rely on their colour.
+void WaveformCard::paintMark(juce::Graphics& g, juce::Rectangle<float> bounds) const
+{
+    if (decision == CandidateDecision::none) return;
+
+    const juce::PathStrokeType stroke(2.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+
+    if (decision == CandidateDecision::pass)
+    {
+        // A crossed-out frame, struck corner to corner across the whole take.
+        auto strike = bounds.reduced(14.0f, 10.0f);
+        juce::Path cross;
+        cross.startNewSubPath(strike.getX(), strike.getY() + 2.0f);
+        cross.lineTo(strike.getRight(), strike.getBottom() - 3.0f);
+        cross.startNewSubPath(strike.getRight() - 2.0f, strike.getY());
+        cross.lineTo(strike.getX() + 1.0f, strike.getBottom() - 1.0f);
+        g.setColour(DivergeTheme::exploration.withAlpha(0.55f));
+        g.strokePath(cross, stroke);
+        return;
+    }
+
+    // Keep, favourite, and exported are all circled; the ring count says how far it went.
+    auto ring = juce::Rectangle<float>(30.0f, 24.0f)
+                    .withCentre({ bounds.getRight() - 27.0f, bounds.getY() + 20.0f });
+    juce::Path loop;
+    loop.addEllipse(ring);
+    g.setColour(DivergeTheme::exploration);
+    g.strokePath(loop, stroke);
+    if (decision == CandidateDecision::favorite || decision == CandidateDecision::exported)
+    {
+        juce::Path second;
+        second.addEllipse(ring.expanded(3.5f, 3.0f).translated(1.0f, -0.5f));
+        g.strokePath(second, juce::PathStrokeType(1.8f));
+    }
+    if (decision == CandidateDecision::exported)
+    {
+        // An arrow off the edge of the sheet: this take left for the DAW.
+        juce::Path arrow;
+        const auto tip = ring.getRight() + 12.0f;
+        arrow.startNewSubPath(ring.getRight() + 2.0f, ring.getCentreY());
+        arrow.lineTo(tip, ring.getCentreY());
+        arrow.startNewSubPath(tip - 4.5f, ring.getCentreY() - 4.0f);
+        arrow.lineTo(tip, ring.getCentreY());
+        arrow.lineTo(tip - 4.5f, ring.getCentreY() + 4.0f);
+        g.strokePath(arrow, juce::PathStrokeType(1.8f, juce::PathStrokeType::curved,
+                                                 juce::PathStrokeType::rounded));
+    }
+}
+
 void WaveformCard::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat().reduced(1.0f);
     const auto focused = hasKeyboardFocus(true);
     const auto active = selected || focused;
     const auto corner = DivergeTheme::radius;
+    const auto passed = decision == CandidateDecision::pass;
 
-    const auto lift = 0.35f + hoverMix * 0.65f;
-    g.setGradientFill({ DivergeTheme::surface.interpolatedWith(DivergeTheme::raised, lift * 0.9f),
-                        bounds.getX(), bounds.getY(),
-                        DivergeTheme::surface.interpolatedWith(DivergeTheme::raised, hoverMix * 0.4f),
-                        bounds.getX(), bounds.getBottom(), false });
+    // The loupe: the frame you are on lifts toward paper. Focus is never spent on an accent
+    // colour, which keeps the grease pencil meaning only "a person decided this".
+    const auto lift = hoverMix * 0.35f + (selected ? 0.5f : 0.0f);
+    g.setColour(DivergeTheme::surface.interpolatedWith(DivergeTheme::raised, juce::jmin(1.0f, lift)));
     g.fillRoundedRectangle(bounds, corner);
-    if (selected)
-    {
-        g.setGradientFill({ DivergeTheme::exploration.withAlpha(0.10f), bounds.getX(), bounds.getY(),
-                            juce::Colours::transparentBlack, bounds.getX(),
-                            bounds.getY() + bounds.getHeight() * 0.75f, false });
-        g.fillRoundedRectangle(bounds, corner);
-    }
-    if (active)
-        DivergeTheme::paintInnerGlow(g, bounds, corner, DivergeTheme::exploration, selected ? 1.0f : 0.55f);
-    g.setColour(active ? DivergeTheme::exploration
-                       : DivergeTheme::edge.withMultipliedAlpha(0.65f + hoverMix * 0.35f));
+    g.setColour(active ? DivergeTheme::text.withAlpha(0.9f)
+                       : DivergeTheme::hairline.interpolatedWith(DivergeTheme::edge, hoverMix));
     g.drawRoundedRectangle(bounds, corner, active ? 1.6f : 1.0f);
 
-    auto content = getLocalBounds().reduced(14, 9);
-    juce::String badge;
-    juce::Colour badgeColour = DivergeTheme::muted;
-    if (decision == CandidateDecision::keep) { badge = "KEPT"; badgeColour = DivergeTheme::decision; }
-    else if (decision == CandidateDecision::pass) { badge = "PASSED"; badgeColour = DivergeTheme::pass; }
-    else if (decision == CandidateDecision::favorite) { badge = "FAVORITE"; badgeColour = DivergeTheme::decision; }
-    else if (decision == CandidateDecision::exported) { badge = "IN DAW"; badgeColour = DivergeTheme::exploration; }
+    // A struck take steps back but stays legible and stays reversible.
+    const auto ink = passed ? 0.4f : 1.0f;
 
-    if (heading.isNotEmpty() || badge.isNotEmpty())
+    auto content = getLocalBounds().reduced(15, 11);
+    if (heading.isNotEmpty())
     {
-        auto header = content.removeFromTop(18);
+        auto header = content.removeFromTop(16);
         const auto numbered = heading.containsOnly("0123456789");
-        g.setFont(numbered ? DivergeTheme::monoBold(11.0f) : DivergeTheme::label(10.5f));
-        g.setColour(selected ? DivergeTheme::exploration : DivergeTheme::muted);
-        g.drawText(heading.toUpperCase(), header, juce::Justification::centredLeft, false);
-        if (badge.isNotEmpty())
-        {
-            const auto badgeWidth = badge.length() * 7 + 20;
-            auto pill = header.removeFromRight(badgeWidth).toFloat().withSizeKeepingCentre(
-                static_cast<float>(badgeWidth), 16.0f);
-            g.setColour(badgeColour.withAlpha(0.16f));
-            g.fillRoundedRectangle(pill, 8.0f);
-            g.setColour(badgeColour.withAlpha(0.5f));
-            g.drawRoundedRectangle(pill, 8.0f, 1.0f);
-            g.setColour(badgeColour);
-            g.setFont(DivergeTheme::monoBold(9.0f));
-            g.drawText(badge, pill.toNearestInt(), juce::Justification::centred, false);
-        }
-        content.removeFromTop(2);
+        // Take numbers are measurement, so they get the monospace; everything else does not.
+        g.setFont(numbered ? DivergeTheme::monoBold(DivergeTheme::Type::meta)
+                           : DivergeTheme::label(DivergeTheme::Type::caps));
+        g.setColour((active ? DivergeTheme::text : DivergeTheme::dim).withMultipliedAlpha(ink));
+        g.drawText(numbered ? heading : heading.toUpperCase(), header,
+                   juce::Justification::centredLeft, false);
+        content.removeFromTop(3);
     }
 
     if (!audioFile.existsAsFile())
     {
+        // Empty slot: a dashed frame waiting for material, with the ask stated plainly.
         juce::Path outline;
-        outline.addRoundedRectangle(bounds.reduced(6.0f), corner - 5.0f);
+        outline.addRoundedRectangle(bounds.reduced(7.0f), corner - 6.0f);
         juce::Path dashed;
-        const float dashes[] = { 5.0f, 5.0f };
+        const float dashes[] = { 6.0f, 5.0f };
         juce::PathStrokeType(1.2f).createDashedStroke(dashed, outline, dashes, 2);
-        g.setColour(DivergeTheme::edge.interpolatedWith(DivergeTheme::exploration, hoverMix * 0.7f)
-                        .withAlpha(0.55f + hoverMix * 0.45f));
+        g.setColour(DivergeTheme::edge.interpolatedWith(DivergeTheme::muted, hoverMix));
         g.fillPath(dashed);
 
         auto empty = content;
-        auto plusArea = empty.removeFromLeft(34).withSizeKeepingCentre(26, 26).toFloat();
-        g.setColour(DivergeTheme::muted.interpolatedWith(DivergeTheme::exploration, hoverMix));
-        g.drawEllipse(plusArea, 1.3f);
-        g.fillRect(plusArea.getCentreX() - 5.0f, plusArea.getCentreY() - 0.75f, 10.0f, 1.5f);
-        g.fillRect(plusArea.getCentreX() - 0.75f, plusArea.getCentreY() - 5.0f, 1.5f, 10.0f);
-        empty.removeFromLeft(8);
-        g.setColour(DivergeTheme::muted.brighter(hoverMix * 0.3f));
-        g.setFont(DivergeTheme::body(13.5f));
+        auto plusArea = empty.removeFromLeft(34).withSizeKeepingCentre(24, 24).toFloat();
+        g.setColour(DivergeTheme::muted.interpolatedWith(DivergeTheme::text, hoverMix));
+        g.fillRect(plusArea.getCentreX() - 7.0f, plusArea.getCentreY() - 0.9f, 14.0f, 1.8f);
+        g.fillRect(plusArea.getCentreX() - 0.9f, plusArea.getCentreY() - 7.0f, 1.8f, 14.0f);
+        empty.removeFromLeft(6);
+        g.setColour(DivergeTheme::muted.brighter(hoverMix * 0.35f));
+        g.setFont(DivergeTheme::body(DivergeTheme::Type::lead));
         g.drawFittedText(prompt, empty, juce::Justification::centredLeft, 2);
         return;
     }
 
-    auto playArea = content.removeFromLeft(34).withSizeKeepingCentre(28, 28).toFloat();
-    playArea = playArea.expanded(hoverMix * 1.0f);
+    auto playArea = content.removeFromLeft(32).withSizeKeepingCentre(26, 26).toFloat();
     if (playing)
     {
-        g.setColour(DivergeTheme::exploration.withAlpha(0.25f));
-        g.drawEllipse(playArea.expanded(3.0f), 1.2f);
-        g.setColour(DivergeTheme::exploration);
+        g.setColour(DivergeTheme::text.withMultipliedAlpha(ink));
         g.fillEllipse(playArea);
         g.setColour(DivergeTheme::canvas);
         g.fillRect(playArea.getCentreX() - 4.5f, playArea.getCentreY() - 5.0f, 3.0f, 10.0f);
@@ -541,32 +595,32 @@ void WaveformCard::paint(juce::Graphics& g)
     }
     else
     {
-        g.setColour(DivergeTheme::raised.brighter(0.1f + hoverMix * 0.15f));
-        g.fillEllipse(playArea);
-        g.setColour(DivergeTheme::edge.interpolatedWith(DivergeTheme::exploration, hoverMix));
-        g.drawEllipse(playArea, 1.2f);
+        g.setColour(DivergeTheme::edge.interpolatedWith(DivergeTheme::text, hoverMix * 0.8f)
+                        .withMultipliedAlpha(ink));
+        g.drawEllipse(playArea.reduced(0.6f), 1.2f);
         juce::Path play;
-        play.addTriangle(playArea.getCentreX() - 3.5f, playArea.getCentreY() - 5.5f,
-                         playArea.getCentreX() - 3.5f, playArea.getCentreY() + 5.5f,
-                         playArea.getCentreX() + 6.0f, playArea.getCentreY());
-        g.setColour(DivergeTheme::text);
+        play.addTriangle(playArea.getCentreX() - 3.0f, playArea.getCentreY() - 5.0f,
+                         playArea.getCentreX() - 3.0f, playArea.getCentreY() + 5.0f,
+                         playArea.getCentreX() + 5.5f, playArea.getCentreY());
+        g.setColour((hoverMix > 0.5f || selected ? DivergeTheme::text : DivergeTheme::muted)
+                        .withMultipliedAlpha(ink));
         g.fillPath(play);
     }
-    content.removeFromLeft(8);
+    content.removeFromLeft(9);
 
     auto waveform = content;
     if (supportingText.isNotEmpty())
     {
-        auto detail = waveform.removeFromBottom(17);
-        g.setColour(DivergeTheme::muted.withAlpha(0.9f));
-        g.setFont(DivergeTheme::body(11.0f));
+        auto detail = waveform.removeFromBottom(16);
+        g.setColour(DivergeTheme::muted.withMultipliedAlpha(ink));
+        g.setFont(DivergeTheme::body(DivergeTheme::Type::meta - 0.5f));
         g.drawFittedText(supportingText, detail, juce::Justification::centredLeft, 1);
     }
     if (thumbnail.getTotalLength() > 0.0)
     {
-        // Idle waveform, then the played portion re-drawn in accent so audio "ignites".
-        g.setColour(selected ? DivergeTheme::text.withAlpha(0.55f) : DivergeTheme::muted.withAlpha(0.55f));
-        thumbnail.drawChannels(g, waveform, 0.0, thumbnail.getTotalLength(), 0.92f);
+        // The take is drawn in graphite; the part already heard is developed up to paper white.
+        g.setColour((selected ? DivergeTheme::muted : DivergeTheme::dim).withMultipliedAlpha(ink));
+        thumbnail.drawChannels(g, waveform, 0.0, thumbnail.getTotalLength(), 0.95f);
         const auto playheadX = waveform.getX()
                                + static_cast<int>(playbackProgress * waveform.getWidth());
         if (playing)
@@ -574,26 +628,21 @@ void WaveformCard::paint(juce::Graphics& g)
             {
                 juce::Graphics::ScopedSaveState clip(g);
                 g.reduceClipRegion(waveform.withRight(playheadX));
-                g.setGradientFill({ DivergeTheme::exploration.darker(0.15f),
-                                    static_cast<float>(waveform.getX()), 0.0f,
-                                    DivergeTheme::exploration, static_cast<float>(playheadX), 0.0f, false });
-                thumbnail.drawChannels(g, waveform, 0.0, thumbnail.getTotalLength(), 0.92f);
+                g.setColour(DivergeTheme::text);
+                thumbnail.drawChannels(g, waveform, 0.0, thumbnail.getTotalLength(), 0.95f);
             }
-            g.setColour(DivergeTheme::exploration.withAlpha(0.18f));
-            g.fillRect(playheadX - 3, waveform.getY(), 7, waveform.getHeight());
-            g.setColour(DivergeTheme::text);
-            g.fillRect(playheadX, waveform.getY(), 1, waveform.getHeight());
             g.setColour(DivergeTheme::exploration);
-            g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre(
-                { static_cast<float>(playheadX) + 0.5f, static_cast<float>(waveform.getY()) + 2.0f }));
+            g.fillRect(playheadX, waveform.getY(), 1, waveform.getHeight());
         }
     }
     else
     {
-        g.setColour(DivergeTheme::hairline.brighter(0.1f));
+        g.setColour(DivergeTheme::hairline);
         g.drawHorizontalLine(waveform.getCentreY(), static_cast<float>(waveform.getX()),
                              static_cast<float>(waveform.getRight()));
     }
+
+    paintMark(g, getLocalBounds().toFloat());
 }
 
 void WaveformCard::mouseEnter(const juce::MouseEvent&) { hovered = true; }
