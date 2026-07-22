@@ -156,9 +156,18 @@ void DivergeLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& b
 
     if (!button.isEnabled())
     {
-        // A disabled control states its edge and nothing else, so it never competes for a click.
-        g.setColour(DivergeTheme::hairline.withAlpha(0.5f));
-        g.drawRoundedRectangle(bounds, corner, 1.0f);
+        // A disabled control never competes for a click, but it still has to be readable. A
+        // filled action keeps a muted fill so its label survives; an outline states its edge.
+        if (filled)
+        {
+            g.setColour(DivergeTheme::hairline);
+            g.fillRoundedRectangle(bounds, corner);
+        }
+        else
+        {
+            g.setColour(DivergeTheme::hairline.withAlpha(0.5f));
+            g.drawRoundedRectangle(bounds, corner, 1.0f);
+        }
         return;
     }
 
@@ -186,9 +195,12 @@ void DivergeLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& b
 void DivergeLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button, bool, bool)
 {
     const auto filled = button.findColour(juce::TextButton::buttonColourId) == DivergeTheme::exploration;
-    g.setColour(button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
-                                                          : juce::TextButton::textColourOffId)
-                    .withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.4f));
+    // A filled action carries a dark label for contrast against chinagraph. That label would
+    // vanish once the fill is gone, so a disabled button always falls back to muted.
+    g.setColour(button.isEnabled()
+                    ? button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
+                                                                : juce::TextButton::textColourOffId)
+                    : DivergeTheme::muted.withMultipliedAlpha(0.75f));
     g.setFont(DivergeTheme::bodyBold(filled ? DivergeTheme::Type::body + 0.5f : DivergeTheme::Type::body));
     g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(12, 2),
                      juce::Justification::centred, 1);
@@ -560,7 +572,7 @@ void WaveformCard::paint(juce::Graphics& g)
         // Take numbers are measurement, so they get the monospace; everything else does not.
         g.setFont(numbered ? DivergeTheme::monoBold(DivergeTheme::Type::meta)
                            : DivergeTheme::label(DivergeTheme::Type::caps));
-        g.setColour((active ? DivergeTheme::text : DivergeTheme::dim).withMultipliedAlpha(ink));
+        g.setColour((active ? DivergeTheme::text : DivergeTheme::muted).withMultipliedAlpha(ink));
         g.drawText(numbered ? heading : heading.toUpperCase(), header,
                    juce::Justification::centredLeft, false);
         content.removeFromTop(3);

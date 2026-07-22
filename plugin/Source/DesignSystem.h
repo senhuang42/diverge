@@ -32,6 +32,8 @@ inline const juce::Colour explorationSoft { 0xff3b180e };
 inline const juce::Colour decision { 0xfff0a93c };
 inline const juce::Colour decisionSoft { 0xff38260f };
 inline const juce::Colour pass { 0xff6e6656 };
+// A destructive action the user is about to take is still a human decision, so it keeps the
+// grease pencil. Machine faults report in safelight amber via `decision` instead.
 inline const juce::Colour danger { 0xffff4a26 };
 
 // Radii stay in the 12-16px band for panels and frames; pills are for small controls only.

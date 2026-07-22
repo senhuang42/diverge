@@ -116,6 +116,7 @@ private:
     juce::File snapshotFile;
     int snapshotTicks = -1;
     float displayedProgress = 0.0f;
+    juce::Rectangle<int> progressBarBounds;
     JobRunner::Status lastJobStatus = JobRunner::Status::idle;
 
     juce::Image backgroundImage;

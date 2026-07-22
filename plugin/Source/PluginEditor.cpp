@@ -298,7 +298,7 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
     {
         progressLabel.setText("Local engine unavailable - open Settings for a quick health check",
                               juce::dontSendNotification);
-        progressLabel.setColour(juce::Label::textColourId, DivergeTheme::danger);
+        progressLabel.setColour(juce::Label::textColourId, DivergeTheme::decision);
     }
     else if (fixtureMode == "settings")
     {
@@ -457,9 +457,9 @@ void DivergeAudioProcessorEditor::configureUi()
     changeValue.setColour(juce::Label::textColourId, DivergeTheme::text);
     changeValue.setJustificationType(juce::Justification::centredRight);
     configureSupportingLabel(familiarLabel, "Familiar");
-    familiarLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
+    familiarLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     configureSupportingLabel(wildLabel, "Unrecognizable", juce::Justification::centredRight);
-    wildLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
+    wildLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
     grooveLock.setToggleState(true, juce::dontSendNotification);
     for (auto* lock : { &grooveLock, &melodyLock, &timbreLock }) lock->setClickingTogglesState(true);
 
@@ -473,7 +473,7 @@ void DivergeAudioProcessorEditor::configureUi()
     configureSupportingLabel(progressLabel, "Ready when you are", juce::Justification::centred);
     configureSupportingLabel(privacyLabel, "Audio stays on this Mac.", juce::Justification::centred);
     privacyLabel.setFont(DivergeTheme::body(11.5f));
-    privacyLabel.setColour(juce::Label::textColourId, DivergeTheme::dim);
+    privacyLabel.setColour(juce::Label::textColourId, DivergeTheme::muted);
 
     briefButton.onClick = [this] { setPrepareVisible(true); };
     resultsTitle.setText("8 variations", juce::dontSendNotification);
@@ -629,7 +629,7 @@ void DivergeAudioProcessorEditor::configureUi()
     settingsTitle.setText("Settings", juce::dontSendNotification);
     settingsTitle.setFont(DivergeTheme::display(DivergeTheme::Type::display - 4.0f));
     configureSupportingLabel(settingsSubtitle, "Diverge runs and learns entirely on this Mac.");
-    settingsSubtitle.setColour(juce::Label::textColourId, DivergeTheme::dim);
+    settingsSubtitle.setColour(juce::Label::textColourId, DivergeTheme::muted);
     settingsClose.onClick = [this] { saveSettings(); setSettingsVisible(false); };
     studioStatus.set("Studio", "Local engine and models are checked before creation.",
                      StatusCard::State::neutral);
@@ -739,30 +739,24 @@ void DivergeAudioProcessorEditor::paint(juce::Graphics& g)
     }
 
     const auto generating = audioProcessor.generation().isActive() || fixtureMode == "generating";
-    if (generating && progressLabel.isVisible())
+    if (generating && progressLabel.isVisible() && !progressBarBounds.isEmpty())
     {
-        auto zone = progressLabel.getBounds().toFloat();
-        auto bar = zone.removeFromBottom(5.0f)
-                       .withSizeKeepingCentre(juce::jmin(360.0f, zone.getWidth() - 40.0f), 5.0f);
-        g.setColour(DivergeTheme::hairline.brighter(0.05f));
+        // Machine progress is safelight amber, never the grease pencil: nobody decided this,
+        // the engine is simply working.
+        const auto bar = progressBarBounds.toFloat();
+        g.setColour(DivergeTheme::hairline);
         g.fillRoundedRectangle(bar, 2.5f);
-        const auto fillWidth = juce::jmax(5.0f, bar.getWidth() * displayedProgress);
-        auto fill = bar.withWidth(fillWidth);
-        g.setGradientFill({ DivergeTheme::exploration.darker(0.3f), fill.getX(), fill.getY(),
-                            DivergeTheme::exploration, fill.getRight(), fill.getY(), false });
+        const auto fill = bar.withWidth(juce::jmax(5.0f, bar.getWidth() * displayedProgress));
+        g.setColour(DivergeTheme::decision);
         g.fillRoundedRectangle(fill, 2.5f);
-        g.setColour(DivergeTheme::exploration.withAlpha(0.35f));
-        g.fillEllipse(juce::Rectangle<float>(11.0f, 11.0f).withCentre({ fill.getRight(), fill.getCentreY() }));
-        g.setColour(DivergeTheme::text);
-        g.fillEllipse(juce::Rectangle<float>(5.0f, 5.0f).withCentre({ fill.getRight(), fill.getCentreY() }));
         if (displayedProgress < 0.08f && !DivergeTheme::reducedMotion())
         {
-            // Indeterminate shimmer while the engine warms up.
+            // Indeterminate sweep while the engine warms up and has no real fraction to report.
             const auto phase = static_cast<float>(std::fmod(
                 juce::Time::getMillisecondCounterHiRes() * 0.00055, 1.0));
-            const auto sweepX = bar.getX() + phase * (bar.getWidth() - 60.0f);
+            const auto sweepX = bar.getX() + phase * juce::jmax(1.0f, bar.getWidth() - 60.0f);
             g.setGradientFill({ juce::Colours::transparentBlack, sweepX, 0.0f,
-                                DivergeTheme::exploration.withAlpha(0.35f), sweepX + 30.0f, 0.0f, false });
+                                DivergeTheme::decision.withAlpha(0.4f), sweepX + 30.0f, 0.0f, false });
             g.fillRoundedRectangle(juce::Rectangle<float>(sweepX, bar.getY(), 60.0f, bar.getHeight()), 2.5f);
         }
     }
@@ -955,10 +949,14 @@ void DivergeAudioProcessorEditor::resized()
 
         // The action closes the screen from the bottom, so the brief never floats in a field
         // of dead space when the window is tall.
-        auto footer = area.removeFromBottom(juce::jmin(area.getHeight(), 108));
+        auto footer = area.removeFromBottom(juce::jmin(area.getHeight(), 120));
         privacyLabel.setBounds(footer.removeFromBottom(22));
-        progressLabel.setBounds(footer.removeFromBottom(26));
-        footer.removeFromBottom(6);
+        progressLabel.setBounds(footer.removeFromBottom(24));
+        // The bar gets its own band above the status line rather than borrowing the label's
+        // bounds, which is how it ended up drawn across the privacy copy.
+        progressBarBounds = footer.removeFromBottom(5)
+                                .withSizeKeepingCentre(juce::jmin(360, footer.getWidth() - 40), 5);
+        footer.removeFromBottom(10);
         auto action = footer.removeFromBottom(52);
         if (viewResultsButton.isVisible())
         {
@@ -2174,7 +2172,7 @@ void DivergeAudioProcessorEditor::timerCallback()
         {
             workflow.view = WorkflowViewState::recoverableError;
             progressLabel.setText(friendlyError(job.error), juce::dontSendNotification);
-            progressLabel.setColour(juce::Label::textColourId, DivergeTheme::danger);
+            progressLabel.setColour(juce::Label::textColourId, DivergeTheme::decision);
             showToast(friendlyError(job.error));
         }
         else if (job.status == JobRunner::Status::cancelled)
