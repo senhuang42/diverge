@@ -46,6 +46,7 @@ def test_config_normalizes_numeric_strings_from_persisted_plugin_state(tmp_path:
         {
             "source": str(tmp_path / "source.wav"),
             "references": [],
+            "reference_mix": "72",
             "transform": "80",
             "spread": "60",
             "drift": "0",
@@ -60,19 +61,30 @@ def test_config_normalizes_numeric_strings_from_persisted_plugin_state(tmp_path:
     )
 
     assert config.transform == 80
+    assert config.reference_mix == 72
     assert config.parent_candidate == 5
     assert config.lock_threshold == 0.55
 
 
 def test_fast_cli_uses_smaller_pool_unless_overridden() -> None:
-    fast = _config(_parser().parse_args(["run", "--source", "source.wav", "--fast"]))
+    fast = _config(
+        _parser().parse_args(
+            ["run", "--source", "source.wav", "--reference-mix", "68", "--fast"]
+        )
+    )
     overridden = _config(
         _parser().parse_args(["run", "--source", "source.wav", "--fast", "--n-oversample", "24"])
     )
     assert fast.n_oversample == 16
     assert overridden.n_oversample == 24
     assert fast.duration_s is None
+    assert fast.reference_mix == 68
     assert fast.locks == set()
+
+
+def test_config_rejects_reference_mix_outside_source_reference_range() -> None:
+    with pytest.raises(ValueError, match="reference_mix"):
+        RunConfig(source=Path("source.wav"), references=[], reference_mix=101)
 
 
 def test_run_cli_no_longer_exposes_preserve_locks() -> None:

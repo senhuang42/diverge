@@ -38,12 +38,14 @@ class RunConfig:
     parent_run_id: str | None = None
     parent_candidate: int | None = None
     host_context: dict[str, Any] = field(default_factory=dict)
+    reference_mix: int = 50
 
     def __post_init__(self) -> None:
         self.source = Path(self.source)
         self.references = [(Path(path), float(weight)) for path, weight in self.references]
         self.locks = set(self.locks)
         for name, value in (
+            ("reference_mix", self.reference_mix),
             ("transform", self.transform),
             ("spread", self.spread),
             ("drift", self.drift),
@@ -115,6 +117,7 @@ class RunConfig:
         normalized = dict(value)
         for key in (
             "transform",
+            "reference_mix",
             "spread",
             "drift",
             "n_return",

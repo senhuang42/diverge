@@ -9,6 +9,7 @@ from diverge.generator import (
     fit_generated_duration,
     fit_source_duration,
     inference_steps,
+    interpolate_latents,
     normalize_generated_audio,
     transform_to_noise,
     variation_prompts,
@@ -90,6 +91,40 @@ def test_high_change_uses_full_sampler_and_distinct_candidate_briefs() -> None:
     assert all("radically reimagined" in prompt for prompt in prompts)
     assert all("preserve the original groove exactly" in prompt for prompt in prompts)
     assert not any("half-time" in prompt or "double-time" in prompt for prompt in prompts)
+
+
+def test_reference_morph_briefs_describe_a_cohesive_blend() -> None:
+    prompts = variation_prompts(
+        "selected audio blend",
+        transform=63,
+        seed=0,
+        count=8,
+        reference_directed=True,
+    )
+
+    assert len(set(prompts)) == 8
+    assert all("blend" in prompt for prompt in prompts)
+    assert all(
+        "half-time" not in prompt and "sustained evolving" not in prompt
+        for prompt in prompts
+    )
+
+
+def test_latent_interpolation_has_exact_endpoints_and_balanced_midpoint() -> None:
+    import torch
+
+    source = torch.tensor([[[1.0, 0.0, -1.0, 0.0]]])
+    reference = torch.tensor([[[0.0, 1.0, 0.0, -1.0]]])
+
+    assert interpolate_latents(source, reference, 0) is source
+    assert interpolate_latents(source, reference, 1) is reference
+    midpoint = interpolate_latents(source, reference, 0.5)
+    assert torch.allclose(torch.linalg.vector_norm(midpoint), torch.linalg.vector_norm(source))
+    assert torch.allclose(midpoint, torch.tensor([[[0.7071, 0.7071, -0.7071, -0.7071]]]), atol=1e-4)
+    assert torch.allclose(
+        interpolate_latents(source, reference * 2, 0.3),
+        interpolate_latents(reference * 2, source, 0.7),
+    )
 
 
 def test_generated_audio_is_peak_normalized_without_boosting_quiet_audio() -> None:

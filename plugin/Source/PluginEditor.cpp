@@ -281,7 +281,9 @@ bool DivergeAudioProcessorEditor::applyUiFixture()
         : fixtureMode == "error" ? WorkflowViewState::recoverableError
         : WorkflowViewState::ready);
     workflow.change = fixture.change;
+    workflow.referenceMix = fixture.referenceMix;
     changeSlider.setValue(workflow.change);
+    referenceMixSlider.setValue(workflow.referenceMix);
     audioSlots[0] = project.getChildFile("data/loop_a.wav");
     audioSlots[1] = project.getChildFile("data/ref_a.wav");
     refreshSlotCard(0);
@@ -370,6 +372,8 @@ void DivergeAudioProcessorEditor::configureUi()
              &sourceSection, sourceCard.get(), &recordButton, &captureLength,
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton, &styleEditor,
+             &referenceMixSection, &referenceMixSlider, &referenceMixValue,
+             &sourceMixLabel, &hybridMixLabel, &referenceMixLabel,
              &changeSection, &changeSlider, &changeValue, &familiarLabel, &wildLabel,
              &generateButton, &viewResultsButton, &cancelButton,
              &progressLabel, &privacyLabel, &briefButton, &resultsTitle, &newButton,
@@ -401,6 +405,7 @@ void DivergeAudioProcessorEditor::configureUi()
 
     configureSectionLabel(sourceSection, "Source");
     configureSectionLabel(directionSection, "Reference");
+    configureSectionLabel(referenceMixSection, "Source / Reference");
     configureSectionLabel(changeSection, "Change");
     refreshSlotCard(0);
     refreshSlotCard(1);
@@ -437,6 +442,27 @@ void DivergeAudioProcessorEditor::configureUi()
     };
     styleEditor.setTextToShowWhenEmpty("Describe a texture, energy, or production direction...", DivergeTheme::muted);
     styleEditor.setMultiLine(false);
+
+    referenceMixSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    referenceMixSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    referenceMixSlider.setRange(0.0, 100.0, 1.0);
+    referenceMixSlider.setValue(50.0);
+    referenceMixSlider.setTooltip("Choose the conditioning point between source and reference");
+    referenceMixSlider.onValueChange = [this]
+    {
+        referenceMixValue.setText(
+            juce::String(static_cast<int>(referenceMixSlider.getValue())),
+            juce::dontSendNotification);
+    };
+    referenceMixValue.setText("50", juce::dontSendNotification);
+    referenceMixValue.setFont(DivergeTheme::monoBold(DivergeTheme::Type::display));
+    referenceMixValue.setColour(juce::Label::textColourId, DivergeTheme::text);
+    referenceMixValue.setJustificationType(juce::Justification::centredRight);
+    configureSupportingLabel(sourceMixLabel, "Source");
+    configureSupportingLabel(hybridMixLabel, "Hybrid", juce::Justification::centred);
+    configureSupportingLabel(referenceMixLabel, "Reference", juce::Justification::centredRight);
+    for (auto* label : { &sourceMixLabel, &hybridMixLabel, &referenceMixLabel })
+        label->setColour(juce::Label::textColourId, DivergeTheme::muted);
 
     changeSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     changeSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
@@ -926,8 +952,21 @@ void DivergeAudioProcessorEditor::resized()
         }
 
         area.removeFromTop(34);
-        auto change = area.removeFromTop(118).withSizeKeepingCentre(
-            juce::jmin(440, area.getWidth()), 118);
+        auto controls = area.removeFromTop(118);
+        const auto controlWidth = juce::jmin(420, (controls.getWidth() - 28) / 2);
+        auto referenceMix = controls.removeFromLeft(controlWidth);
+        controls.removeFromLeft(28);
+        auto change = controls.removeFromLeft(controlWidth);
+        auto mixHeader = referenceMix.removeFromTop(30);
+        referenceMixValue.setBounds(mixHeader.removeFromRight(70));
+        referenceMixSection.setBounds(mixHeader);
+        referenceMix.removeFromTop(6);
+        auto mixEndpoints = referenceMix.removeFromBottom(18);
+        const auto endpointWidth = mixEndpoints.getWidth() / 3;
+        sourceMixLabel.setBounds(mixEndpoints.removeFromLeft(endpointWidth));
+        hybridMixLabel.setBounds(mixEndpoints.removeFromLeft(endpointWidth));
+        referenceMixLabel.setBounds(mixEndpoints);
+        referenceMixSlider.setBounds(referenceMix.removeFromTop(40));
         auto changeHeader = change.removeFromTop(30);
         changeValue.setBounds(changeHeader.removeFromRight(70));
         changeSection.setBounds(changeHeader);
@@ -1023,6 +1062,8 @@ void DivergeAudioProcessorEditor::setPrepareVisible(bool visible)
              &sourceSection, sourceCard.get(), &recordButton, &captureLength,
              &directionSection, directionCard.get(),
              &replaceDirectionButton, &removeDirectionButton, &addDirectionButton,
+             &referenceMixSection, &referenceMixSlider, &referenceMixValue,
+             &sourceMixLabel, &hybridMixLabel, &referenceMixLabel,
              &changeSection, &changeSlider, &changeValue, &familiarLabel, &wildLabel,
              &generateButton, &progressLabel, &privacyLabel })
         component->setVisible(visible);
@@ -1128,6 +1169,7 @@ void DivergeAudioProcessorEditor::refreshSlotCard(int slot)
         const auto showActions = showPrepare && file.existsAsFile();
         replaceDirectionButton.setVisible(showActions);
         removeDirectionButton.setVisible(showActions);
+        referenceMixSlider.setEnabled(file.existsAsFile());
     }
 }
 
@@ -1240,6 +1282,7 @@ juce::File DivergeAudioProcessorEditor::writeRunConfig() const
         }
     object->setProperty("references", references);
     object->setProperty("transform", static_cast<int>(changeSlider.getValue()));
+    object->setProperty("reference_mix", static_cast<int>(referenceMixSlider.getValue()));
     object->setProperty("spread", workflow.range);
     object->setProperty("drift", libraryEditor.getText().trim().isNotEmpty() ? 35 : 0);
     object->setProperty("n_return", 8);
@@ -1341,9 +1384,13 @@ void DivergeAudioProcessorEditor::loadRun(const juce::File& run)
             audioSlots[index + 1] = loadedRun.references[index];
         workflow.audioSlots = audioSlots;
         workflow.change = loadedRun.change;
+        workflow.referenceMix = loadedRun.referenceMix;
         workflow.range = loadedRun.range;
         workflow.direction = loadedRun.direction;
         changeSlider.setValue(loadedRun.change, juce::dontSendNotification);
+        referenceMixSlider.setValue(loadedRun.referenceMix, juce::dontSendNotification);
+        referenceMixValue.setText(juce::String(loadedRun.referenceMix),
+                                  juce::dontSendNotification);
         styleEditor.setText(loadedRun.direction, false);
         showDirectionText = loadedRun.direction.isNotEmpty();
         addDirectionButton.setButtonText(showDirectionText ? "- Hide text" : "+ Text direction");
@@ -2044,6 +2091,7 @@ void DivergeAudioProcessorEditor::restoreSettings()
     outputEditor.setText(state.getProperty("output", project.getChildFile("runs").getFullPathName()).toString());
     audioSlots = workflow.audioSlots;
     changeSlider.setValue(workflow.change);
+    referenceMixSlider.setValue(workflow.referenceMix);
     opinionSlider.setValue(workflow.opinion, juce::dontSendNotification);
     opinionValue.setText(juce::String(workflow.opinion) + "%", juce::dontSendNotification);
     learningToggle.setToggleState(workflow.learningEnabled, juce::dontSendNotification);
@@ -2075,6 +2123,7 @@ void DivergeAudioProcessorEditor::saveSettings()
     state.setProperty("output", outputEditor.getText().trim(), nullptr);
     workflow.audioSlots = audioSlots;
     workflow.change = static_cast<int>(changeSlider.getValue());
+    workflow.referenceMix = static_cast<int>(referenceMixSlider.getValue());
     workflow.opinion = static_cast<int>(opinionSlider.getValue());
     workflow.learningEnabled = learningToggle.getToggleState();
     workflow.direction = styleHint();

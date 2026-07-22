@@ -51,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--config", type=Path)
     run.add_argument("--source", type=Path)
     run.add_argument("--ref", action="append", type=_reference, default=[])
+    run.add_argument("--reference-mix", type=int, default=50)
     run.add_argument("--transform", type=int, default=45)
     run.add_argument("--spread", type=int, default=60)
     run.add_argument("--drift", type=int, default=35)
@@ -176,6 +177,7 @@ def _config(args: argparse.Namespace) -> RunConfig:
     return RunConfig(
         source=args.source,
         references=args.ref,
+        reference_mix=args.reference_mix,
         transform=args.transform,
         spread=args.spread,
         drift=args.drift,

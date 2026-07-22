@@ -75,6 +75,7 @@ RunModel RunModel::load(const juce::File& runDirectory)
         result.source = juce::File(config.getProperty("source", {}).toString());
         result.requestedCount = static_cast<int>(config.getProperty("n_return", 8));
         result.change = static_cast<int>(config.getProperty("transform", 45));
+        result.referenceMix = static_cast<int>(config.getProperty("reference_mix", 50));
         result.range = static_cast<int>(config.getProperty("spread", 60));
         result.direction = config.getProperty("style_text_hint", {}).toString();
         result.parentRunId = config.getProperty("parent_run_id", {}).toString();
@@ -147,6 +148,7 @@ void WorkflowModel::restoreFrom(const juce::ValueTree& state)
     audioSlots[1] = juce::File(state.getProperty("reference1", {}).toString());
     audioSlots[2] = juce::File(state.getProperty("reference2", {}).toString());
     change = static_cast<int>(state.getProperty("change", 45));
+    referenceMix = static_cast<int>(state.getProperty("referenceMix", 50));
     range = static_cast<int>(state.getProperty("range", 60));
     opinion = static_cast<int>(state.getProperty("opinion", 50));
     learningEnabled = static_cast<bool>(state.getProperty("learningEnabled", true));
@@ -185,6 +187,7 @@ void WorkflowModel::saveTo(juce::ValueTree& state) const
     state.setProperty("reference1", audioSlots[1].getFullPathName(), nullptr);
     state.setProperty("reference2", audioSlots[2].getFullPathName(), nullptr);
     state.setProperty("change", change, nullptr);
+    state.setProperty("referenceMix", referenceMix, nullptr);
     state.setProperty("range", range, nullptr);
     state.setProperty("opinion", opinion, nullptr);
     state.setProperty("learningEnabled", learningEnabled, nullptr);
@@ -220,6 +223,7 @@ WorkflowModel WorkflowFixtures::make(WorkflowViewState state, const juce::File& 
     fixture.audioSlots[0] = juce::File("/Fixtures/source.wav");
     fixture.audioSlots[1] = juce::File("/Fixtures/direction.wav");
     fixture.change = 52;
+    fixture.referenceMix = 50;
     if (state == WorkflowViewState::needsSetup)
         fixture.audioSlots = {};
     if (state == WorkflowViewState::results && fixtureRun.isDirectory())

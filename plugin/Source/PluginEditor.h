@@ -134,6 +134,7 @@ private:
     juce::Label sourceSection;
     juce::Label directionSection;
     juce::Label changeSection;
+    juce::Label referenceMixSection;
     std::unique_ptr<WaveformCard> sourceCard;
     std::unique_ptr<WaveformCard> directionCard;
     juce::TextButton recordButton { "Record" };
@@ -142,6 +143,11 @@ private:
     juce::TextButton removeDirectionButton { "Remove" };
     juce::TextButton addDirectionButton { "+ Text direction" };
     juce::TextEditor styleEditor;
+    juce::Slider referenceMixSlider;
+    juce::Label referenceMixValue;
+    juce::Label sourceMixLabel;
+    juce::Label hybridMixLabel;
+    juce::Label referenceMixLabel;
     juce::Slider changeSlider;
     juce::Label changeValue;
     juce::Label familiarLabel;

@@ -12,6 +12,12 @@ from .critic import taste_scores
 from .embed import Embedder
 from .explanations import candidate_explanations
 from .fallback import lock_safe_variations
+from .features import (
+    chroma,
+    groove_similarity_envelopes,
+    melody_similarity_chroma,
+    onset_envelope,
+)
 from .generator import GeneratorProtocol, transform_to_noise
 from .locks import active_lock_score, lock_similarities, prepare_lock_source
 from .map2d import project_2d
@@ -32,31 +38,34 @@ from .taste.profile import enrich_prompt, infer_descriptors
 def _style_hint(config: RunConfig) -> str:
     if config.style_text_hint.strip():
         return config.style_text_hint.strip()
-    ignored = {"a", "audio", "ref", "reference", "sample", "track"}
-    names = []
-    for path, _ in config.references:
-        words = path.stem.lower().replace("_", " ").replace("-", " ").split()
-        useful = [word for word in words if word not in ignored and not word.isdigit()]
-        if useful:
-            names.append(" ".join(useful))
-    details = f", {', '.join(names)}" if names else ""
-    return f"clean polished instrumental production loop{details}"
+    return "coherent polished instrumental variation of the selected audio blend"
 
 
-def _direction_descriptor_hint(config: RunConfig) -> str:
+def _direction_descriptor_hint(
+    config: RunConfig, reference_audio: list[np.ndarray]
+) -> tuple[str, dict[str, float]]:
     if not config.references:
-        return ""
+        return "", {"embedding": 1.0, "rhythm": 0.0, "melody": 0.0}
     weighted: dict[str, float] = {}
-    for path, weight in config.references:
-        audio, sr = load_audio(path)
+    for audio, (_, weight) in zip(reference_audio, config.references, strict=True):
+        sr = 44_100
         spectral, temporal = audio_descriptors(audio, sr)
         for name, score in descriptor_scores(spectral, temporal).items():
             weighted[name] = weighted.get(name, 0.0) + weight * score
-    groups = (("dark", "bright"), ("percussive", "sparse"), ("raw", "polished"))
-    descriptors = [max(group, key=lambda name: weighted.get(name, 0.0)) for group in groups]
+    onset_density = weighted.get("percussive", 0.0)
+    if onset_density >= 0.30:
+        rhythm = "dense chopped breakbeat rhythm with rapid syncopated attacks"
+    elif onset_density >= 0.15:
+        rhythm = "syncopated percussive rhythm with short articulated hits"
+    else:
+        rhythm = "sparse rhythm with long spaces between attacks"
+    groups = (("dark", "bright"), ("raw", "polished"))
+    descriptors = [rhythm]
+    descriptors.extend(max(group, key=lambda name: weighted.get(name, 0.0)) for group in groups)
     if weighted.get("compressed", 0.0) >= 0.65:
         descriptors.append("compressed")
-    return ", ".join(descriptors)
+    component_weights = {"embedding": 0.40, "rhythm": 0.30, "melody": 0.30}
+    return ", ".join(descriptors), component_weights
 
 
 def run_session(
@@ -97,6 +106,7 @@ def run_session(
         else source_file_duration_s
     )
     source = source[..., : round(duration_s * sr)].copy()
+    reference_audio = [load_audio(path, sr)[0] for path, _ in config.references]
     if hasattr(generator, "capabilities"):
         minimum, maximum = generator.capabilities.duration_s
         if not minimum <= duration_s <= maximum:
@@ -114,9 +124,9 @@ def run_session(
     taste_events = TasteEventStore(config.taste_events_path).load(effective=True)
     hypotheses = infer_descriptors(taste_events)
     base_prompt = _style_hint(config)
-    direction_hint = _direction_descriptor_hint(config)
-    if direction_hint:
-        base_prompt += f", direction audio is {direction_hint}"
+    direction_hint, reference_component_weights = _direction_descriptor_hint(
+        config, reference_audio
+    )
     if float(config.host_context.get("bpm", 0) or 0) > 0:
         base_prompt += f", {round(float(config.host_context['bpm']))} BPM"
     prompt, prompt_additions = enrich_prompt(
@@ -138,6 +148,12 @@ def run_session(
         generator.progress = report
     if hasattr(generator, "preserve_locks"):
         generator.preserve_locks = set(config.locks)
+    if hasattr(generator, "reference_directed"):
+        generator.reference_directed = bool(config.references)
+    if hasattr(generator, "reference_audio"):
+        generator.reference_audio = reference_audio
+        generator.reference_weights = [weight for _, weight in config.references]
+        generator.reference_mix = config.reference_mix / 100
     generated = generator.generate(
         source,
         sr,
@@ -176,23 +192,71 @@ def run_session(
         style_embedding if not config.references else embedder.embed_audio(source, sr)
     )
     source_lock_features = (
-        prepare_lock_source(source, source_embedding, sr) if config.locks else None
+        prepare_lock_source(source, source_embedding, sr)
+        if config.locks or config.references
+        else None
     )
     candidates: list[Candidate] = []
     contexts: list[CandidateContext] = []
     quality_reports = []
+    reference_fit_components: list[dict[str, float]] = []
+    reference_onsets = [onset_envelope(audio, sr) for audio in reference_audio]
+    reference_chroma = [chroma(audio, sr) for audio in reference_audio]
+    reference_weights = np.asarray(
+        [weight for _, weight in config.references], dtype=np.float32
+    )
     expected_samples = round(duration_s * sr)
 
     def analyze_batch(start: int, embeddings: np.ndarray) -> None:
         batch_audio = generated[start : start + len(embeddings)]
+        batch_onsets = (
+            [onset_envelope(audio, sr) for audio in batch_audio] if config.references else []
+        )
+        batch_chroma = [chroma(audio, sr) for audio in batch_audio] if config.references else []
         source_similarity = np.clip((embeddings @ source_embedding + 1) / 2, 0, 1)
         if config.references:
-            ref_fit = np.clip((embeddings @ style_embedding + 1) / 2, 0, 1)
+            embedding_fit = np.clip((embeddings @ style_embedding + 1) / 2, 0, 1)
+            groove_fit = np.asarray(
+                [
+                    sum(
+                        float(weight)
+                        * groove_similarity_envelopes(
+                            candidate_onset, reference_onset, sr
+                        )
+                        for weight, reference_onset in zip(
+                            reference_weights, reference_onsets, strict=True
+                        )
+                    )
+                    for candidate_onset in batch_onsets
+                ],
+                dtype=np.float32,
+            )
+            melody_fit = np.asarray(
+                [
+                    sum(
+                        float(weight)
+                        * melody_similarity_chroma(candidate_pitch, reference_pitch)
+                        for weight, reference_pitch in zip(
+                            reference_weights, reference_chroma, strict=True
+                        )
+                    )
+                    for candidate_pitch in batch_chroma
+                ],
+                dtype=np.float32,
+            )
         else:
-            ref_fit = np.full(len(embeddings), 0.5, dtype=np.float32)
-        change_fit = np.asarray(
-            [change_alignment_score(value, config.transform) for value in source_similarity],
-            dtype=np.float32,
+            embedding_fit = np.full(len(embeddings), 0.5, dtype=np.float32)
+            groove_fit = np.full(len(embeddings), 0.5, dtype=np.float32)
+            melody_fit = np.full(len(embeddings), 0.5, dtype=np.float32)
+        reference_fit_components.extend(
+            {
+                "embedding": round(float(embedding_value), 6),
+                "rhythm": round(float(groove_value), 6),
+                "melody": round(float(melody_value), 6),
+            }
+            for embedding_value, groove_value, melody_value in zip(
+                embedding_fit, groove_fit, melody_fit, strict=True
+            )
         )
         novelty = novelty_scores(embeddings, config.library_index)
         self_novelty = self_novelty_scores(
@@ -201,9 +265,11 @@ def run_session(
         legacy_taste = taste_scores(embeddings, config.critic_model)
         batch_contexts: list[CandidateContext] = []
         batch_similarities = []
+        batch_blend_fit = []
+        batch_change_fit = []
         batch_quality = []
-        for audio, embedding, novelty_score, self_novelty_score in zip(
-            batch_audio, embeddings, novelty, self_novelty, strict=True
+        for offset, (audio, embedding, novelty_score, self_novelty_score) in enumerate(
+            zip(batch_audio, embeddings, novelty, self_novelty, strict=True)
         ):
             quality = evaluate_quality(audio, expected_samples)
             similarities = (
@@ -221,6 +287,33 @@ def run_session(
             spectral, temporal = audio_descriptors(audio, sr)
             batch_quality.append(quality)
             batch_similarities.append(similarities)
+            if config.references:
+                mix = config.reference_mix / 100
+                blend_fit = sum(
+                    reference_component_weights[name]
+                    * ((1 - mix) * source_value + mix * reference_value)
+                    for name, source_value, reference_value in (
+                        ("embedding", source_similarity[offset], embedding_fit[offset]),
+                        (
+                            "rhythm",
+                            groove_similarity_envelopes(
+                                batch_onsets[offset], source_lock_features.onset, sr
+                            ),
+                            groove_fit[offset],
+                        ),
+                        (
+                            "melody",
+                            melody_similarity_chroma(
+                                batch_chroma[offset], source_lock_features.chroma
+                            ),
+                            melody_fit[offset],
+                        ),
+                    )
+                )
+            else:
+                blend_fit = 0.5
+            batch_blend_fit.append(float(blend_fit))
+            batch_change_fit.append(change_alignment_score(float(blend_fit), config.transform))
             batch_contexts.append(
                 CandidateContext(
                     candidate_embedding=embedding,
@@ -254,9 +347,9 @@ def run_session(
                 Candidate(
                     index=start + offset,
                     embedding=embedding,
-                    ref_fit=float(ref_fit[offset]),
+                    ref_fit=batch_blend_fit[offset],
                     source_similarity=float(source_similarity[offset]),
-                    change_fit=float(change_fit[offset]),
+                    change_fit=batch_change_fit[offset],
                     taste=(
                         float(predictions.mean[offset])
                         if taste_model.observation_count
@@ -344,6 +437,12 @@ def run_session(
                 "origin": provenance[candidate.index]["kind"],
                 "treatment": provenance[candidate.index]["treatment"],
                 "ref_fit": round(candidate.ref_fit, 6),
+                "blend_fit": round(candidate.ref_fit, 6),
+                "reference_embedding_fit": reference_fit_components[candidate.index][
+                    "embedding"
+                ],
+                "reference_rhythm_fit": reference_fit_components[candidate.index]["rhythm"],
+                "reference_melody_fit": reference_fit_components[candidate.index]["melody"],
                 "source_similarity": round(candidate.source_similarity, 6),
                 "change_fit": round(candidate.change_fit, 6),
                 "generation_prompt": provenance[candidate.index]["prompt"],
@@ -372,8 +471,8 @@ def run_session(
         source_descriptors,
         config.locks,
         config.lock_threshold,
-        # Reference fit is measurable from audio embeddings. Text direction is model input, but
-        # this path does not yet produce a calibrated text-fit score.
+        # Blend fit symmetrically combines source/reference embedding, groove, and melody
+        # similarity. Text direction is model input without a separate calibrated fit score.
         has_direction=bool(config.references),
     )
     for record, explanation in zip(records, explanations, strict=True):
@@ -411,6 +510,23 @@ def run_session(
             "expected_samples": expected_samples,
         },
         "source_analysis": {"descriptors": source_descriptors},
+        "reference_influence": {
+            "native_model_audio_direction": bool(
+                getattr(getattr(generator, "capabilities", None), "audio_direction", False)
+            ),
+            "derived_text_direction": False,
+            "explicit_text_direction": bool(config.style_text_hint.strip()),
+            "symmetric_morph_prompting": bool(config.references),
+            "reference_mix": config.reference_mix,
+            "full_audio_conditioning": bool(
+                config.references and hasattr(generator, "reference_conditioning_mode")
+            ),
+            "conditioning_mode": getattr(
+                generator, "reference_conditioning_mode", "unsupported"
+            ),
+            "selection_component_weights": reference_component_weights,
+            "descriptor_hint": direction_hint,
+        },
         "calibration": {
             "transform_noise": {
                 "min": 0.1,

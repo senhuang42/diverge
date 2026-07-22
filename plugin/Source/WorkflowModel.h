@@ -75,6 +75,7 @@ struct RunModel
     std::vector<CandidateModel> candidates;
     std::vector<MapPoint> mapPoints;
     int change = 45;
+    int referenceMix = 50;
     int range = 60;
     juce::String direction;
     juce::String parentRunId;
@@ -99,6 +100,7 @@ struct WorkflowModel
     WorkflowViewState view = WorkflowViewState::needsSetup;
     std::array<juce::File, 3> audioSlots;
     int change = 45;
+    int referenceMix = 50;
     int range = 60;
     int opinion = 50;
     bool learningEnabled = true;

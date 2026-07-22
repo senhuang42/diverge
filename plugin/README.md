@@ -45,7 +45,9 @@ For a host-free smoke test, open
 ## Host workflow
 
 1. Drop, record, or choose a source; optionally add a reference or short direction.
-2. Set **Change** to choose how far the variations should move from the source.
+2. With a reference loaded, set **Source / Reference** to choose the full-audio latent blend point:
+   Source at 0, an equal hybrid at 50, or Reference at 100. Set **Change** independently to choose
+   how far the variations should move from that point.
 3. Select **Create 8 variations**. The job continues if the editor closes.
 4. Click waveform cards to switch audition instantly; previews are resampled to the active host
    rate and loudness-matched to the source for audition only. Source A/B preserves the musical
@@ -58,7 +60,7 @@ For a host-free smoke test, open
    and hands the DAW a stable named export under the user's application-support library. Branch
    sources are retained there too, with append-only provenance events. Branch with **More like
    this** or recover a prior batch from **Recent**. Recent restores the saved source, reference,
-   direction, Change setting, and choices.
+   direction, Source / Reference and Change settings, and choices.
 
 Quality and pairwise uniqueness checks are hard gates. The plugin generates a 16-candidate model
 pool, retries acoustically collapsed batches with wider diffusion, and selects up to eight distinct

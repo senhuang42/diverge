@@ -33,6 +33,13 @@ receives a distinct brief. A cheap spectral-temporal check detects collapsed mod
 retries them once with wider diffusion and the full sampler. Selection then enforces a pairwise
 duplicate ceiling; it returns a smaller truthful set if eight distinct valid results do not exist.
 
+Source and reference tracks are peers in generation. The Reference Mix control chooses a continuous
+point between their full autoencoder latents: 0 is source-conditioned, 50 is an energy-matched
+hybrid, and 100 is reference-conditioned. Change independently controls how far diffusion moves
+from that point. Measured embedding, groove, and melody similarity also affect candidate ranking.
+Because Open Small does not expose a native second audio-direction input, the manifest identifies
+this local latent-interpolation path separately from the backend capability.
+
 Outputs default to the selected source region's exact duration. The plugin's bar control crops both
 imported and recorded sources. The Open Small backend is limited to its native 524,288-sample
 (11.89-second) window; larger regions are rejected rather than time-stretched. Silence, clipping,

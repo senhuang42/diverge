@@ -59,6 +59,18 @@ def test_full_mock_session_writes_bundle(tmp_path: Path) -> None:
     assert all("source_similarity" in item for item in manifest["candidates"])
     assert all("change_fit" in item for item in manifest["candidates"])
     assert all("generation_prompt" in item for item in manifest["candidates"])
+    assert all("reference_embedding_fit" in item for item in manifest["candidates"])
+    assert all("reference_rhythm_fit" in item for item in manifest["candidates"])
+    assert all("reference_melody_fit" in item for item in manifest["candidates"])
+    assert all(item["blend_fit"] == item["ref_fit"] for item in manifest["candidates"])
+    assert manifest["reference_influence"]["derived_text_direction"] is False
+    assert manifest["reference_influence"]["symmetric_morph_prompting"] is True
+    assert manifest["reference_influence"]["reference_mix"] == 50
+    assert set(manifest["reference_influence"]["selection_component_weights"]) == {
+        "embedding",
+        "rhythm",
+        "melody",
+    }
     structured = [
         json.loads(item.removeprefix("DIVERGE_EVENT "))
         for item in events

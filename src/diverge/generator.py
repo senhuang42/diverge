@@ -51,6 +51,17 @@ _MIX_DIRECTIONS = (
     "midrange-forward balance with reduced low-frequency weight",
 )
 
+_REFERENCE_DIRECTIONS = (
+    "make the selected audio blend cohesive across composition and production",
+    "develop the blend's phrasing and articulation into a unified performance",
+    "rework the blend's harmonic and rhythmic movement as one coherent track",
+    "reshape the selected blend with a materially different instrumentation palette",
+    "develop the blend's dynamics and transient character without separating its inputs",
+    "recompose the blend's melodic contour and cadence as a single musical idea",
+    "make the selected point feel like one track rather than two overlaid recordings",
+    "place the complete blended identity inside a new but internally consistent arrangement",
+)
+
 
 @dataclass(frozen=True)
 class EngineCapabilities:
@@ -123,6 +134,7 @@ def variation_prompts(
     seed: int,
     count: int,
     locks: set[str] | None = None,
+    reference_directed: bool = False,
 ) -> list[str]:
     """Create deterministic, materially different briefs for a single batched model call."""
     if count < 1:
@@ -134,7 +146,9 @@ def variation_prompts(
     else:
         intent = "subtle production variation"
     active_locks = locks or set()
-    if {"groove", "melody", "timbre"} <= active_locks:
+    if reference_directed and "groove" not in active_locks:
+        directions = _REFERENCE_DIRECTIONS
+    elif {"groove", "melody", "timbre"} <= active_locks:
         directions = _MIX_DIRECTIONS
     elif "groove" in active_locks and "melody" in active_locks:
         directions = _TIMBRE_DIRECTIONS
@@ -150,6 +164,23 @@ def variation_prompts(
         f"{base_prompt}, {intent}{preserve}, {directions[(start + index) % len(directions)]}"
         for index in range(count)
     ]
+
+
+def interpolate_latents(source, reference, mix: float):
+    """Symmetric energy-preserving interpolation with exact source/reference endpoints."""
+    import torch
+
+    amount = float(np.clip(mix, 0, 1))
+    if amount == 0:
+        return source
+    if amount == 1:
+        return reference
+    source_rms = torch.sqrt(torch.mean(source.float() ** 2)).clamp_min(1e-8)
+    reference_rms = torch.sqrt(torch.mean(reference.float() ** 2)).clamp_min(1e-8)
+    blended = (1 - amount) * source + amount * reference
+    blended_rms = torch.sqrt(torch.mean(blended.float() ** 2)).clamp_min(1e-8)
+    target_rms = (1 - amount) * source_rms + amount * reference_rms
+    return blended * (target_rms / blended_rms).to(blended.dtype)
 
 
 def normalize_generated_audio(audio: np.ndarray, peak_limit: float = 0.95) -> np.ndarray:
@@ -298,6 +329,11 @@ class StableAudioGenerator:
         self._config = None
         self.last_prompts: list[str] = []
         self.preserve_locks: set[str] = set()
+        self.reference_directed = False
+        self.reference_audio: list[np.ndarray] = []
+        self.reference_weights: list[float] = []
+        self.reference_mix = 0.0
+        self.reference_conditioning_mode = "autoencoder-latent-interpolation-v1"
         self.progress = print
         self.inference_settings = {
             "steps": 4 if fast else 8,
@@ -311,6 +347,9 @@ class StableAudioGenerator:
         model,
         conditioning_tensors: dict,
         init,
+        reference_inits: list,
+        reference_weights: list[float],
+        reference_mix: float,
         init_sr: int,
         sample_size: int,
         seeds: list[int],
@@ -345,6 +384,35 @@ class StableAudioGenerator:
         )
         if model.pretransform is not None:
             prepared = model.pretransform.encode(prepared)
+        if reference_inits and reference_mix > 0:
+            prepared_references = []
+            for reference_init in reference_inits:
+                prepared_reference = prepare_audio(
+                    reference_init,
+                    in_sr=init_sr,
+                    target_sr=model.sample_rate,
+                    target_length=sample_size,
+                    target_channels=(
+                        model.pretransform.io_channels
+                        if model.pretransform is not None
+                        else model.io_channels
+                    ),
+                    device=device,
+                )
+                if model.pretransform is not None:
+                    prepared_reference = model.pretransform.encode(prepared_reference)
+                prepared_references.append(prepared_reference)
+            weights = torch.as_tensor(
+                reference_weights,
+                device=device,
+                dtype=prepared_references[0].dtype,
+            )
+            weights /= weights.sum().clamp_min(1e-8)
+            prepared_reference = sum(
+                weight * item
+                for weight, item in zip(weights, prepared_references, strict=True)
+            )
+            prepared = interpolate_latents(prepared, prepared_reference, reference_mix)
         prepared = prepared.repeat(len(seeds), 1, 1)
         model_dtype = next(model.model.parameters()).dtype
         noise = noise.to(model_dtype)
@@ -447,6 +515,24 @@ class StableAudioGenerator:
         sample_size = requested_samples
         source_array = fit_source_duration(source, sample_size)
         init = torch.from_numpy(source_array.copy()).to(device=device, dtype=torch.float32)
+        reference_inits = []
+        for reference in self.reference_audio:
+            reference_array = np.asarray(reference, dtype=np.float32)
+            if reference_array.ndim == 1:
+                reference_array = reference_array[np.newaxis, :]
+            if reference_array.shape[0] != source_array.shape[0]:
+                if reference_array.shape[0] == 1 and source_array.shape[0] == 2:
+                    reference_array = np.repeat(reference_array, 2, axis=0)
+                elif reference_array.shape[0] == 2 and source_array.shape[0] == 1:
+                    reference_array = reference_array.mean(axis=0, keepdims=True)
+                else:
+                    raise ValueError("reference channels must match source channels")
+            reference_array = fit_source_duration(reference_array, sample_size)
+            reference_inits.append(
+                torch.from_numpy(reference_array.copy()).to(
+                    device=device, dtype=torch.float32
+                )
+            )
         params = inspect.signature(generate_diffusion_cond).parameters
         if "init_audio" not in params or "init_noise_level" not in params:
             raise RuntimeError(
@@ -454,7 +540,12 @@ class StableAudioGenerator:
             )
         outputs: list[np.ndarray] = []
         prompts = variation_prompts(
-            style_text_hint, transform, seed, n, locks=self.preserve_locks
+            style_text_hint,
+            transform,
+            seed,
+            n,
+            locks=self.preserve_locks,
+            reference_directed=self.reference_directed,
         )
         self.last_prompts = prompts
         settings = {
@@ -492,6 +583,9 @@ class StableAudioGenerator:
                             model,
                             conditioning_tensors,
                             init,
+                            reference_inits,
+                            self.reference_weights,
+                            self.reference_mix,
                             sr,
                             sample_size,
                             seeds,
@@ -536,6 +630,8 @@ class StableAudioGenerator:
             "step_schedule": step_schedule,
             "diversity_retries": diversity_retries,
             "audio_redundancy_threshold": 0.995,
+            "reference_mix": round(self.reference_mix, 6),
+            "reference_conditioning_mode": self.reference_conditioning_mode,
         }
         return outputs
 

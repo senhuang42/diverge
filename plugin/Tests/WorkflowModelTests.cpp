@@ -21,6 +21,7 @@ int main()
     original.choices[0].exported = true;
     original.choices[0].branched = true;
     original.choices[1].passed = true;
+    original.referenceMix = 73;
     original.refreshVisualDecisions();
     juce::ValueTree state("DivergeState");
     state.setProperty("preserveGroove", true, nullptr);
@@ -33,6 +34,8 @@ int main()
 
     WorkflowModel restored;
     restored.restoreFrom(state);
+    if (restored.referenceMix != 73)
+        return fail("reference mix did not survive state round trip");
     if (!restored.choices[0].kept || !restored.choices[0].passed
         || !restored.choices[0].favorite || !restored.choices[0].exported
         || !restored.choices[0].branched)
@@ -53,7 +56,7 @@ int main()
     const auto manifest = R"json({
       "config": {
         "source": "/tmp/source.wav", "references": [["/tmp/ref.wav", 1.0]],
-        "n_return": 8, "transform": 62, "spread": 35,
+        "n_return": 8, "transform": 62, "reference_mix": 81, "spread": 35,
         "style_text_hint": "dusty and restrained"
       },
       "selection": {
@@ -75,7 +78,7 @@ int main()
     if (!shortRun.isValid() || shortRun.requestedCount != 8 || shortRun.returnedCount != 3
         || shortRun.shortfall != 5 || !shortRun.canTryMore)
         return fail("valid result shortfall was not loaded");
-    if (shortRun.change != 62 || shortRun.range != 35
+    if (shortRun.change != 62 || shortRun.referenceMix != 81 || shortRun.range != 35
         || shortRun.direction != "dusty and restrained" || shortRun.references.size() != 1)
         return fail("run brief was not restored from the manifest");
     if (shortRun.candidates[0].explanation != "Melody retained; darker texture.")
