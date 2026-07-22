@@ -58,7 +58,13 @@ def test_trained_low_band_preference_shifts_mock_selection(tmp_path: Path) -> No
         )
         for index, source_index in enumerate(order)
     ]
-    selected = select_candidates(candidates, 8, spread=0, drift=0).selected
+    selected = select_candidates(
+        candidates,
+        8,
+        spread=0,
+        drift=0,
+        duplicate_similarity_threshold=1.01,
+    ).selected
     selected_centroids = centroids[order[[item.index for item in selected]]]
     baseline_centroids = centroids[order[:8]]
     assert selected_centroids.mean() < baseline_centroids.mean() * 0.75

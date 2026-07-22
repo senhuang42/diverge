@@ -28,15 +28,17 @@ Normal mode generates 32 candidates. Fast mode generates 16. Both request up to 
 results. Preserve and quality checks are hard gates: if fewer than eight candidates pass, Diverge
 returns the valid subset and records the shortfall instead of weakening the constraints.
 
-The plugin uses a lower-latency guaranteed-results mode: it validates an eight-candidate model
-pool, then fills missing slots with labeled source-derived treatments that pass the same gates.
-Each model candidate receives a distinct, Preserve-aware brief. Fast mode keeps four diffusion
-steps for routine exploration and uses the model's full eight steps at Change 70 or above so Wild
-batches resolve into distinct arrangements and sound palettes instead of under-sampled fragments.
+The plugin builds a 16-candidate model pool for up to eight displayed results. Each model candidate
+receives a distinct, Preserve-aware brief. A cheap spectral-temporal check detects collapsed model
+batches and retries them once with wider diffusion and the full sampler. Selection then enforces a
+pairwise duplicate ceiling; it returns a smaller truthful set if eight distinct valid results do
+not exist.
 
-Outputs default to the source's exact duration. Explicit duration changes are recorded as crops or
-loop fills. Silence, clipping, invalid layouts, severe discontinuities, and wrong-length candidates
-are rejected before selection. Mono sources produce mono files; stereo sources remain stereo.
+Outputs default to the selected source region's exact duration. The plugin's bar control crops both
+imported and recorded sources. The Open Small backend is limited to its native 524,288-sample
+(11.89-second) window; larger regions are rejected rather than time-stretched. Silence, clipping,
+invalid layouts, severe discontinuities, wrong-length candidates, and duplicates are rejected
+before selection. Mono sources produce mono files; stereo sources remain stereo.
 
 ## Plugin
 

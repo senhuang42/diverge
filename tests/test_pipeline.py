@@ -232,7 +232,7 @@ def test_all_rejected_candidates_write_a_recoverable_empty_run(tmp_path: Path) -
     ]
 
 
-def test_guaranteed_results_fill_all_slots_after_model_rejection(tmp_path: Path) -> None:
+def test_guaranteed_results_do_not_fill_slots_with_gain_duplicates(tmp_path: Path) -> None:
     class SilentGenerator:
         emits_progress = False
 
@@ -258,8 +258,8 @@ def test_guaranteed_results_fill_all_slots_after_model_rejection(tmp_path: Path)
     run_dir = run_session(config, SilentGenerator(), embedder, progress=lambda _: None)
     manifest = json.loads((run_dir / "manifest.json").read_text())
 
-    assert manifest["selection"]["returned_count"] == 8
-    assert manifest["selection"]["shortfall"] == 0
-    assert manifest["selection"]["fallback_selected_count"] == 8
+    assert manifest["selection"]["returned_count"] == 1
+    assert manifest["selection"]["shortfall"] == 7
+    assert manifest["selection"]["fallback_selected_count"] == 1
     assert all(item["origin"] == "lock_safe_fallback" for item in manifest["candidates"])
-    assert len(list(run_dir.glob("cand_*.wav"))) == 8
+    assert len(list(run_dir.glob("cand_*.wav"))) == 1

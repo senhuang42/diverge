@@ -88,6 +88,35 @@ def inference_steps(transform: int, *, fast: bool) -> int:
     return 8 if not fast or transform >= 70 else 4
 
 
+def audio_batch_redundancy(
+    audio: np.ndarray,
+    *,
+    similarity_threshold: float = 0.995,
+) -> float:
+    """Measure inexpensive spectral-temporal duplication inside a generated batch."""
+    batch = np.asarray(audio, dtype=np.float32)
+    if batch.ndim == 2:
+        batch = batch[:, np.newaxis, :]
+    if batch.ndim != 3 or len(batch) < 2:
+        return 0.0
+    fingerprints = []
+    for item in batch:
+        signal = item.mean(axis=0)
+        envelope = np.asarray(
+            [np.mean(np.abs(chunk)) for chunk in np.array_split(signal, 128)]
+        )
+        spectral = []
+        for window in np.array_split(signal, 8):
+            magnitude = np.abs(np.fft.rfft(window * np.hanning(len(window))))
+            spectral.extend(np.mean(chunk) for chunk in np.array_split(magnitude, 32))
+        fingerprint = np.log1p(np.concatenate([envelope * 100, spectral]))
+        fingerprint /= max(float(np.linalg.norm(fingerprint)), 1e-12)
+        fingerprints.append(fingerprint)
+    similarities = np.vstack(fingerprints) @ np.vstack(fingerprints).T
+    pairs = similarities[np.triu_indices(len(fingerprints), 1)]
+    return float(np.mean(pairs >= similarity_threshold))
+
+
 def variation_prompts(
     base_prompt: str,
     transform: int,
@@ -437,43 +466,77 @@ class StableAudioGenerator:
         self.last_inference_settings = settings
         index = 0
         active_batch_size = min(self.batch_size, n)
+        noise_schedule: list[float] = []
+        step_schedule: list[int] = []
+        diversity_retries = 0
         while index < n:
             size = min(active_batch_size, n - index)
+            arrays = None
             seeds = list(range(seed + index, seed + index + size))
             conditioning = [
                 {"prompt": item, "seconds_start": 0, "seconds_total": duration_s}
                 for item in prompts[index : index + size]
             ]
-            try:
-                with torch.inference_mode():
-                    conditioning_tensors = model.conditioner(conditioning, device)
-                    audio = self._generate_seed_batch(
-                        model,
-                        conditioning_tensors,
-                        init,
-                        sr,
-                        sample_size,
-                        seeds,
-                        float(transform_to_noise(transform)),
-                        settings,
+            pool_round = index // max(1, self.batch_size)
+            noise_level = min(1.0, float(transform_to_noise(transform)) + 0.10 * pool_round)
+            attempt = 0
+            while True:
+                batch_settings = {
+                    **settings,
+                    "steps": max(settings["steps"], 8 if attempt else settings["steps"]),
+                }
+                try:
+                    with torch.inference_mode():
+                        conditioning_tensors = model.conditioner(conditioning, device)
+                        audio = self._generate_seed_batch(
+                            model,
+                            conditioning_tensors,
+                            init,
+                            sr,
+                            sample_size,
+                            seeds,
+                            noise_level,
+                            batch_settings,
+                        )
+                except RuntimeError as exc:
+                    if size == 1 or "out of memory" not in str(exc).lower():
+                        raise
+                    active_batch_size = max(1, size // 2)
+                    if hasattr(torch, "mps"):
+                        torch.mps.empty_cache()
+                    self.progress(f"BATCH_RETRY {size}->{active_batch_size}")
+                    break
+                arrays = audio.detach().float().cpu().numpy()
+                redundancy = audio_batch_redundancy(arrays)
+                if size > 1 and redundancy >= 0.75 and attempt == 0 and noise_level < 1.0:
+                    attempt += 1
+                    diversity_retries += 1
+                    noise_level = min(1.0, noise_level + 0.20)
+                    self.progress(
+                        f"DIVERSITY_RETRY {index + 1}-{index + size} "
+                        f"redundancy={redundancy:.3f} noise={noise_level:.3f}"
                     )
-            except RuntimeError as exc:
-                if size == 1 or "out of memory" not in str(exc).lower():
-                    raise
-                active_batch_size = max(1, size // 2)
-                if hasattr(torch, "mps"):
-                    torch.mps.empty_cache()
-                self.progress(f"BATCH_RETRY {size}->{active_batch_size}")
+                    continue
+                break
+            if arrays is None:
                 continue
-            arrays = audio.detach().float().cpu().numpy()
             expected_samples = round(duration_s * sr)
             outputs.extend(
                 normalize_generated_audio(fit_generated_duration(array, expected_samples))
                 for array in arrays
             )
             index += size
+            noise_schedule.extend([round(noise_level, 6)] * size)
+            step_schedule.extend([batch_settings["steps"]] * size)
             for completed in range(index - size + 1, index + 1):
                 self.progress(f"PROGRESS {completed}/{n}")
+        self.last_inference_settings = {
+            **settings,
+            "noise_schedule": noise_schedule,
+            "step_schedule": step_schedule,
+            "diversity_retries": diversity_retries,
+            "audio_redundancy_threshold": 0.995,
+        }
         return outputs
 
 

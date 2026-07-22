@@ -418,6 +418,7 @@ def run_session(
             "lock_threshold_used": result.threshold_used,
             "relaxations": result.relaxations,
             "eligible_count": result.eligible_count,
+            "duplicate_similarity_threshold": result.duplicate_similarity_threshold,
             "requested_count": result.requested_count,
             "returned_count": len(result.selected),
             "shortfall": max(0, result.requested_count - len(result.selected)),

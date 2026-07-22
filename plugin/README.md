@@ -59,16 +59,18 @@ For a host-free smoke test, open
    this** or recover a prior batch from **Recent**. Recent restores the saved source, reference,
    direction, Change, Preserve settings, and choices.
 
-Quality and Preserve checks are hard gates. The plugin generates a fast model pool, validates it,
-then fills any missing slots with labeled, source-derived lock-safe treatments. It always presents
-eight results without silently lowering the requested Preserve threshold.
+Quality, Preserve, and pairwise uniqueness checks are hard gates. The plugin generates a
+16-candidate model pool, retries acoustically collapsed batches with wider diffusion, and selects
+up to eight distinct results. If eight do not pass, it presents the valid subset instead of filling
+slots with duplicates or silently lowering the requested Preserve threshold.
 Each seed receives a distinct brief that avoids contradicting active Preserve locks. At Change 70
 or above, generation uses the model's full sampler; decoded peaks are normalized before quality
 validation, and selection explicitly rewards the requested distance from the source.
 High Change with all three Preserve locks shows a warning but remains available to try.
-Choose a 1, 2, 4, or 8-bar capture. In a host, recording arms until the next bar and then stops at
-the requested length. Mono/stereo layout, sample rate, tempo, and time signature are preserved as
-host facts in the run config. Host-free capture starts immediately with a 120 BPM fallback.
+Choose a 1, 2, 4, or 8-bar source region for imported or recorded audio. In a host, recording arms
+until the next bar and then stops at the requested length. Mono/stereo layout, sample rate, tempo,
+and time signature are preserved as host facts in the run config. Host-free region lengths and
+capture use a 120 BPM fallback.
 
 Keep, Pass, Favorite, Use in DAW, and Branch are independent candidate choices: recording one does
 not erase another. Choice changes are appended to each run's `decision-events.jsonl`; the current

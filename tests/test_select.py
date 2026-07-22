@@ -16,14 +16,14 @@ def _candidate(index: int, vector: list[float], utility: float, novelty: float =
     )
 
 
-def test_spread_zero_returns_top_utility_cluster() -> None:
+def test_spread_zero_still_rejects_duplicate_top_utility_candidates() -> None:
     candidates = [
         _candidate(0, [1, 0], 1.0),
         _candidate(1, [0.99, 0.1], 0.9),
         _candidate(2, [0, 1], 0.3),
     ]
     result = select_candidates(candidates, 2, spread=0, drift=0)
-    assert [item.index for item in result.selected] == [0, 1]
+    assert [item.index for item in result.selected] == [0, 2]
 
 
 def test_preserve_threshold_is_never_relaxed_to_fill_the_set() -> None:
@@ -51,6 +51,7 @@ def test_preserve_threshold_can_return_an_empty_valid_subset() -> None:
     assert result.selected == []
     assert result.eligible_count == 0
     assert result.requested_count == 2
+    assert result.duplicate_similarity_threshold == 0.95
 
 
 def test_drift_monotonically_prefers_novel_candidates() -> None:
@@ -92,3 +93,20 @@ def test_pairwise_metrics_expose_redundant_batches() -> None:
     assert metrics["mean_pairwise_similarity"] == 0.333333
     assert metrics["max_pairwise_similarity"] == 1.0
     assert metrics["redundant_pair_fraction"] == 0.333333
+
+
+def test_selection_returns_fewer_results_instead_of_filling_with_duplicates() -> None:
+    candidates = [
+        _candidate(index, [1.0, 0.0], 1.0 - index / 100)
+        for index in range(8)
+    ]
+
+    result = select_candidates(
+        candidates,
+        8,
+        spread=100,
+        drift=0,
+        allocate_roles=False,
+    )
+
+    assert [candidate.index for candidate in result.selected] == [0]

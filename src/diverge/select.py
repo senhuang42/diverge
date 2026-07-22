@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+DUPLICATE_SIMILARITY_THRESHOLD = 0.95
+
 
 @dataclass
 class Candidate:
@@ -35,6 +37,7 @@ class SelectionResult:
     spread_lambda: float
     eligible_count: int
     requested_count: int
+    duplicate_similarity_threshold: float
 
 
 def spread_lambda(spread: int) -> float:
@@ -110,6 +113,7 @@ def select_candidates(
     opinion: int | None = None,
     configured_max_taste_weight: float = 0.60,
     allocate_roles: bool = True,
+    duplicate_similarity_threshold: float = DUPLICATE_SIMILARITY_THRESHOLD,
 ) -> SelectionResult:
     if len(candidates) < n_return:
         raise ValueError("not enough candidates")
@@ -127,14 +131,26 @@ def select_candidates(
     lam = spread_lambda(spread)
     remaining = sorted(survivors, key=lambda c: (-c.utility, c.index))
     if allocate_roles and opinion is not None and n_return == 8 and len(remaining) >= 12:
-        chosen = _role_selection(remaining, lam)
+        chosen = _role_selection(remaining, lam, duplicate_similarity_threshold)
     elif not remaining:
         chosen = []
     elif lam == 0:
-        chosen = remaining[:n_return]
+        chosen = []
+        for candidate in remaining:
+            if _not_duplicate(candidate, chosen, duplicate_similarity_threshold):
+                chosen.append(candidate)
+            if len(chosen) == n_return:
+                break
     else:
         chosen = [remaining.pop(0)]
         while remaining and len(chosen) < n_return:
+            remaining = [
+                candidate
+                for candidate in remaining
+                if _not_duplicate(candidate, chosen, duplicate_similarity_threshold)
+            ]
+            if not remaining:
+                break
 
             def objective(candidate: Candidate) -> tuple[float, int]:
                 distances = [1 - float(candidate.embedding @ item.embedding) for item in chosen]
@@ -151,10 +167,15 @@ def select_candidates(
         lam,
         eligible_count=len(survivors),
         requested_count=n_return,
+        duplicate_similarity_threshold=duplicate_similarity_threshold,
     )
 
 
-def _not_duplicate(candidate: Candidate, chosen: list[Candidate], threshold: float = 0.985) -> bool:
+def _not_duplicate(
+    candidate: Candidate,
+    chosen: list[Candidate],
+    threshold: float = DUPLICATE_SIMILARITY_THRESHOLD,
+) -> bool:
     return all(float(candidate.embedding @ item.embedding) < threshold for item in chosen)
 
 
@@ -164,17 +185,24 @@ def _take_best(
     role: str,
     key,
     count: int,
+    duplicate_similarity_threshold: float,
 ) -> None:
     for candidate in sorted(remaining, key=key, reverse=True):
         if len([item for item in chosen if item.role == role]) >= count:
             break
-        if candidate in chosen or not _not_duplicate(candidate, chosen):
+        if candidate in chosen or not _not_duplicate(
+            candidate, chosen, duplicate_similarity_threshold
+        ):
             continue
         candidate.role = role
         chosen.append(candidate)
 
 
-def _role_selection(candidates: list[Candidate], lam: float) -> list[Candidate]:
+def _role_selection(
+    candidates: list[Candidate],
+    lam: float,
+    duplicate_similarity_threshold: float,
+) -> list[Candidate]:
     """Allocate satisfaction, learning, exploration, and surprise capacity."""
     chosen: list[Candidate] = []
     _take_best(
@@ -183,6 +211,7 @@ def _role_selection(candidates: list[Candidate], lam: float) -> list[Candidate]:
         "favorite",
         lambda c: (c.utility, 1 - c.taste_uncertainty, -c.index),
         3,
+        duplicate_similarity_threshold,
     )
     _take_best(
         candidates,
@@ -195,6 +224,7 @@ def _role_selection(candidates: list[Candidate], lam: float) -> list[Candidate]:
             -c.index,
         ),
         2,
+        duplicate_similarity_threshold,
     )
 
     def explore_score(candidate: Candidate) -> tuple[float, float, int]:
@@ -207,19 +237,29 @@ def _role_selection(candidates: list[Candidate], lam: float) -> list[Candidate]:
         )
         return new_mode + lam * distance, candidate.utility, -candidate.index
 
-    _take_best(candidates, chosen, "explore", explore_score, 2)
+    _take_best(
+        candidates,
+        chosen,
+        "explore",
+        explore_score,
+        2,
+        duplicate_similarity_threshold,
+    )
     _take_best(
         candidates,
         chosen,
         "surprise",
         lambda c: (0.6 * c.novelty + 0.4 * c.self_novelty, c.utility, -c.index),
         1,
+        duplicate_similarity_threshold,
     )
-    # Near-duplicate pools can make strict role allocation short. Fill safely by utility.
+    # Strict role allocation may be short; fill by utility without violating uniqueness.
     for candidate in candidates:
         if len(chosen) == 8:
             break
-        if candidate not in chosen:
+        if candidate not in chosen and _not_duplicate(
+            candidate, chosen, duplicate_similarity_threshold
+        ):
             candidate.role = "quality"
             chosen.append(candidate)
     return chosen

@@ -5,6 +5,7 @@ from diverge.generator import (
     MockGenerator,
     StableAudio3Generator,
     StableAudioGenerator,
+    audio_batch_redundancy,
     fit_generated_duration,
     fit_source_duration,
     inference_steps,
@@ -59,6 +60,16 @@ def test_generated_audio_is_never_time_stretched_over_a_large_shortfall() -> Non
 def test_open_small_reports_its_real_render_window() -> None:
     assert OPEN_SMALL_MAX_DURATION_S == 524_288 / 44_100
     assert StableAudioGenerator.capabilities.duration_s[1] == OPEN_SMALL_MAX_DURATION_S
+
+
+def test_audio_batch_redundancy_detects_collapsed_variations() -> None:
+    time = np.linspace(0, 20 * np.pi, 44_100, dtype=np.float32)
+    first = np.sin(time)[np.newaxis, :]
+    duplicate = first * np.float32(0.99)
+    different = np.random.default_rng(7).normal(0, 0.2, first.shape).astype(np.float32)
+
+    assert audio_batch_redundancy(np.stack([first, duplicate])) == 1.0
+    assert audio_batch_redundancy(np.stack([first, different])) == 0.0
 
 
 def test_fast_generator_uses_short_sampler_and_keeps_batch_setting() -> None:
