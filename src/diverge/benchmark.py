@@ -279,6 +279,7 @@ def run_benchmark(
     root.mkdir(parents=True, exist_ok=True)
     case_reports: list[dict[str, Any]] = []
     for case_index, case in enumerate(corpus.cases):
+        started = time.perf_counter()
         source, sr = load_audio(case.source)
         source_embedding = embedder.embed_file(case.source)
         direction_embedding = (
@@ -287,10 +288,10 @@ def run_benchmark(
             else source_embedding
         )
         progress_times: list[float] = []
-        started = time.perf_counter()
 
         if hasattr(generator, "progress"):
             generator.progress = _progress_recorder(started, progress_times)
+        generation_started = time.perf_counter()
         generated = generator.generate(
             source,
             sr,
@@ -301,7 +302,7 @@ def run_benchmark(
             seed + case_index * n_pool,
             n_pool,
         )
-        generation_s = time.perf_counter() - started
+        generation_s = time.perf_counter() - generation_started
         first_playable_s = progress_times[0] if progress_times else generation_s
         case_dir = root / case.case_id
         paths = [
@@ -363,6 +364,7 @@ def run_benchmark(
         selected_indexes = {candidate.index for candidate in selection.selected}
         for candidate in candidate_reports:
             candidate["selected"] = candidate["index"] in selected_indexes
+        full_valid_batch_s = time.perf_counter() - started
         case_reports.append(
             {
                 "case_id": case.case_id,
@@ -377,7 +379,8 @@ def run_benchmark(
                 "performance": {
                     "cold_start_included": case_index == 0,
                     "first_playable_s": first_playable_s,
-                    "full_pool_s": generation_s,
+                    "generation_pool_s": generation_s,
+                    "full_valid_batch_s": full_valid_batch_s,
                     "peak_rss_mb": _peak_rss_mb(),
                 },
                 "selection": {
@@ -393,14 +396,15 @@ def run_benchmark(
             }
         )
     first_times = [item["performance"]["first_playable_s"] for item in case_reports]
-    pool_times = [item["performance"]["full_pool_s"] for item in case_reports]
+    generation_times = [item["performance"]["generation_pool_s"] for item in case_reports]
+    full_valid_times = [item["performance"]["full_valid_batch_s"] for item in case_reports]
     warm_first_times = [
         item["performance"]["first_playable_s"]
         for item in case_reports
         if not item["performance"]["cold_start_included"]
     ]
-    warm_pool_times = [
-        item["performance"]["full_pool_s"]
+    warm_full_valid_times = [
+        item["performance"]["full_valid_batch_s"]
         for item in case_reports
         if not item["performance"]["cold_start_included"]
     ]
@@ -410,7 +414,7 @@ def run_benchmark(
     ]
     capabilities = getattr(generator, "capabilities", None)
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "engine_id": engine_id,
         "engine_capabilities": capabilities.to_dict() if capabilities else None,
         "generator_settings": getattr(generator, "inference_settings", {}),
@@ -439,28 +443,35 @@ def run_benchmark(
         "summary": {
             "p50_first_playable_s": float(np.median(first_times)),
             "p95_first_playable_s": float(np.percentile(first_times, 95)),
-            "p50_full_pool_s": float(np.median(pool_times)),
-            "p95_full_pool_s": float(np.percentile(pool_times, 95)),
+            "p50_generation_pool_s": float(np.median(generation_times)),
+            "p95_generation_pool_s": float(np.percentile(generation_times, 95)),
+            "p50_full_valid_batch_s": float(np.median(full_valid_times)),
+            "p95_full_valid_batch_s": float(np.percentile(full_valid_times, 95)),
             "cold_first_playable_s": first_times[0],
-            "cold_full_pool_s": pool_times[0],
+            "cold_full_valid_batch_s": full_valid_times[0],
             "p50_warm_first_playable_s": (
                 float(np.median(warm_first_times)) if warm_first_times else None
             ),
             "p95_warm_first_playable_s": (
                 float(np.percentile(warm_first_times, 95)) if warm_first_times else None
             ),
-            "p50_warm_full_pool_s": (
-                float(np.median(warm_pool_times)) if warm_pool_times else None
+            "p50_warm_full_valid_batch_s": (
+                float(np.median(warm_full_valid_times)) if warm_full_valid_times else None
             ),
-            "p95_warm_full_pool_s": (
-                float(np.percentile(warm_pool_times, 95)) if warm_pool_times else None
+            "p95_warm_full_valid_batch_s": (
+                float(np.percentile(warm_full_valid_times, 95))
+                if warm_full_valid_times
+                else None
             ),
             "complete_valid_set_rate": float(np.mean(complete_sets)),
             "latency_budget_passed": bool(
                 first_times[0] <= 20
-                and pool_times[0] <= 60
+                and full_valid_times[0] <= 60
                 and (not warm_first_times or np.percentile(warm_first_times, 95) <= 20)
-                and (not warm_pool_times or np.percentile(warm_pool_times, 95) <= 60)
+                and (
+                    not warm_full_valid_times
+                    or np.percentile(warm_full_valid_times, 95) <= 60
+                )
             ),
             "minimum_hardware_latency_status": "pending",
             "preserve_contract_passed": all(
@@ -533,6 +544,9 @@ def compare_benchmarks(
     if len(report_paths) < 2:
         raise ValueError("at least two benchmark reports are required")
     reports = [json.loads(Path(path).read_text()) for path in report_paths]
+    schema_versions = {report.get("schema_version") for report in reports}
+    if schema_versions != {2}:
+        raise ValueError("benchmark reports must all use schema version 2")
     by_engine = {report["engine_id"]: report for report in reports}
     if len(by_engine) != len(reports):
         raise ValueError("benchmark reports must have unique engine ids")
@@ -597,21 +611,21 @@ def compare_benchmarks(
                 )
                 trial_index += 1
     summaries = {engine: _automated_summary(report) for engine, report in by_engine.items()}
-    baseline_time = summaries[baseline_engine]["p50_full_pool_s"]
-    baseline_cold_time = summaries[baseline_engine]["cold_full_pool_s"]
-    baseline_warm_time = summaries[baseline_engine]["p50_warm_full_pool_s"]
+    baseline_time = summaries[baseline_engine]["p50_full_valid_batch_s"]
+    baseline_cold_time = summaries[baseline_engine]["cold_full_valid_batch_s"]
+    baseline_warm_time = summaries[baseline_engine]["p50_warm_full_valid_batch_s"]
     for _engine, summary in summaries.items():
         summary["speedup_vs_baseline"] = (
-            baseline_time / summary["p50_full_pool_s"]
-            if summary["p50_full_pool_s"] > 0
+            baseline_time / summary["p50_full_valid_batch_s"]
+            if summary["p50_full_valid_batch_s"] > 0
             else None
         )
         summary["cold_speedup_vs_baseline"] = (
-            baseline_cold_time / summary["cold_full_pool_s"]
-            if summary["cold_full_pool_s"] > 0
+            baseline_cold_time / summary["cold_full_valid_batch_s"]
+            if summary["cold_full_valid_batch_s"] > 0
             else None
         )
-        candidate_warm_time = summary["p50_warm_full_pool_s"]
+        candidate_warm_time = summary["p50_warm_full_valid_batch_s"]
         summary["warm_speedup_vs_baseline"] = (
             baseline_warm_time / candidate_warm_time
             if baseline_warm_time is not None

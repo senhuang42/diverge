@@ -25,9 +25,10 @@ Use `--hardware-tier minimum` only on the exact supported minimum Mac. Other mac
 classified as `reference` or left `unclassified`. The report records model identifier, processor,
 memory, OS, and Python version without recording a serial number.
 
-The benchmark reports the first generation as cold and all later generations as warm. The latency
-gate requires the cold result and warm P95 to meet the product budget. A reference-machine pass
-does not satisfy the minimum-hardware gate.
+The benchmark reports the first generation as cold and all later generations as warm. Full-valid-
+batch time starts before source loading/embedding and ends only after candidate embedding, quality
+checks, lock enforcement, and selection. The latency gate requires the cold result and warm P95 to
+meet the product budget. A reference-machine pass does not satisfy the minimum-hardware gate.
 
 ## Run and compare
 
