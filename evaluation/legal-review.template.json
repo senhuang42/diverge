@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "engines": {
+    "sa3-small-music": {
+      "status": "pending",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "scope": null,
+      "notes": "Review model weights, Stable Audio 3 code, Stability Community License, Gemma/text-conditioner components, paid-plugin redistribution, model download flow, attribution, and the path for organizations above the revenue threshold."
+    },
+    "sa3-small-sfx": {
+      "status": "pending",
+      "reviewed_by": null,
+      "reviewed_at": null,
+      "scope": null,
+      "notes": "Review model weights, Stable Audio 3 code, Stability Community License, Gemma/text-conditioner components, paid-plugin redistribution, model download flow, attribution, and the path for organizations above the revenue threshold."
+    }
+  }
+}

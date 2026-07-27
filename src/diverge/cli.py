@@ -93,12 +93,24 @@ def _parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--transform", type=int, default=45)
     benchmark.add_argument("--seed", type=int, default=0)
     benchmark.add_argument("--fast", action="store_true")
+    benchmark.add_argument(
+        "--hardware-tier",
+        choices=("minimum", "reference", "unclassified"),
+        default="unclassified",
+    )
 
     compare_benchmarks = commands.add_parser("compare-benchmarks")
     compare_benchmarks.add_argument("reports", nargs="+", type=Path)
     compare_benchmarks.add_argument("--baseline", required=True)
     compare_benchmarks.add_argument("--output-dir", type=Path, required=True)
     compare_benchmarks.add_argument("--blind-seed", type=int, default=0)
+
+    evaluate_benchmarks = commands.add_parser("evaluate-benchmarks")
+    evaluate_benchmarks.add_argument("--comparison-dir", type=Path, required=True)
+    evaluate_benchmarks.add_argument("--legal-review", type=Path)
+    evaluate_benchmarks.add_argument("--minimum-judgments", type=int, default=20)
+    evaluate_benchmarks.add_argument("--quality-threshold", type=float, default=0.50)
+    evaluate_benchmarks.add_argument("--minimum-useful-rate", type=float, default=0.60)
 
     critic = commands.add_parser("critic")
     critic_commands = critic.add_subparsers(dest="critic_command", required=True)
@@ -222,6 +234,18 @@ def _engine_generator(
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "evaluate-benchmarks":
+        from .benchmark import evaluate_benchmark_decision
+
+        decision = evaluate_benchmark_decision(
+            args.comparison_dir,
+            legal_review_path=args.legal_review,
+            minimum_judgments_per_engine=args.minimum_judgments,
+            quality_noninferiority_threshold=args.quality_threshold,
+            minimum_useful_rate=args.minimum_useful_rate,
+        )
+        print(decision)
+        return 0
     if args.command == "compare-benchmarks":
         from .benchmark import compare_benchmarks
 
@@ -254,6 +278,7 @@ def main(argv: list[str] | None = None) -> int:
             lock_threshold=args.lock_threshold,
             transform=args.transform,
             seed=args.seed,
+            hardware_tier=args.hardware_tier,
         )
         print(report)
         return 0

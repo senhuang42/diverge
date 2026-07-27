@@ -3,7 +3,12 @@ from pathlib import Path
 
 import numpy as np
 
-from diverge.benchmark import compare_benchmarks, load_corpus, run_benchmark
+from diverge.benchmark import (
+    compare_benchmarks,
+    evaluate_benchmark_decision,
+    load_corpus,
+    run_benchmark,
+)
 from diverge.embed import Embedder
 from diverge.generator import MockGenerator
 
@@ -109,3 +114,83 @@ def test_comparison_requires_matching_evidence_and_creates_blind_trials(tmp_path
     assert len(trials) == 1
     assert Path(trials[0]["a"]).is_file()
     assert Path(trials[0]["b"]).is_file()
+
+
+def test_decision_requires_and_aggregates_every_phase_zero_gate(tmp_path: Path) -> None:
+    corpus_path = tmp_path / "corpus.json"
+    corpus_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "cases": [
+                    {
+                        "id": "loop",
+                        "source": str(DATA / "loop_a.wav"),
+                        "source_class": "drums",
+                        "prompt": "electronic drum loop",
+                        "duration_s": 0.25,
+                        "locks": [],
+                    }
+                ],
+            }
+        )
+    )
+    corpus = load_corpus(corpus_path)
+    embedder = Embedder(cache_dir=tmp_path / "cache", backend=SpectralBackend())
+    reports = [
+        run_benchmark(
+            corpus,
+            engine,
+            MockGenerator(),
+            embedder,
+            tmp_path / "reports",
+            n_pool=2,
+            n_return=1,
+            hardware_tier="minimum",
+        )
+        for engine in ("baseline", "candidate")
+    ]
+    comparison_dir = tmp_path / "comparison"
+    compare_benchmarks(reports, "baseline", comparison_dir, blind_seed=3)
+    comparison_path = comparison_dir / "comparison.json"
+    comparison = json.loads(comparison_path.read_text())
+    comparison["corpus"]["representative"] = True
+    comparison["questions"]["latency"]["four_x_candidates"] = ["candidate"]
+    comparison["engine_summaries"]["candidate"]["minimum_hardware_latency_status"] = "passed"
+    comparison_path.write_text(json.dumps(comparison))
+
+    trials_path = comparison_dir / "blind_trials.json"
+    trials = json.loads(trials_path.read_text())
+    answer_key = json.loads((comparison_dir / "blind_answer_key.json").read_text())
+    candidate_side = (
+        "a" if answer_key[0]["a_engine"] == "candidate" else "b"
+    )
+    trials[0]["judgments"] = [
+        {"reviewer_id": f"reviewer-{index:02d}", "winner": candidate_side}
+        for index in range(20)
+    ]
+    trials_path.write_text(json.dumps(trials))
+    legal_path = tmp_path / "legal.json"
+    legal_path.write_text(
+        json.dumps(
+            {
+                "engines": {
+                    "candidate": {
+                        "status": "approved",
+                        "reviewed_by": "counsel",
+                        "reviewed_at": "2026-07-27",
+                        "scope": "paid plugin redistribution",
+                    }
+                }
+            }
+        )
+    )
+
+    decision_path = evaluate_benchmark_decision(
+        comparison_dir,
+        legal_review_path=legal_path,
+    )
+    decision = json.loads(decision_path.read_text())
+    assert decision["quality"]["candidate"]["passed"] is True
+    assert decision["legal"]["candidate"]["passed"] is True
+    assert decision["decision"] == {"status": "selected", "engine": "candidate"}

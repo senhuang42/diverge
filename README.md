@@ -71,7 +71,8 @@ uv run diverge taste export-profile
 
 ## Engine evaluation
 
-The Stable Audio 3 Small Music and Small SFX adapters are evaluation paths, not the packaged
+The complete Phase 0 protocol is in [evaluation/README.md](evaluation/README.md). The Stable Audio
+3 Small Music and Small SFX adapters are evaluation paths, not the packaged
 release backend. Install Stable Audio 3 in a separate environment because its dependency stack
 differs from the Open Small runtime:
 
@@ -83,12 +84,13 @@ uv pip install --python .venv-sa3/bin/python \
 uv pip install --python .venv-sa3/bin/python --no-deps -e .
 ```
 
-Run the same rights-cleared corpus through each engine, then create a blind comparison:
+Prepare the pinned CC0 corpus, run it through each engine, then create a blind comparison:
 
 ```bash
-.venv/bin/diverge benchmark --corpus evaluation/corpus.example.json \
+.venv/bin/python scripts/prepare_evaluation_corpus.py
+.venv/bin/diverge benchmark --corpus evaluation/corpus.cc0.json \
   --engine open-small --fast
-.venv-sa3/bin/diverge benchmark --corpus evaluation/corpus.example.json \
+.venv-sa3/bin/diverge benchmark --corpus evaluation/corpus.cc0.json \
   --engine sa3-small-music --fast
 .venv/bin/diverge compare-benchmarks \
   evaluation/reports/open-small/benchmark.json \
@@ -96,8 +98,9 @@ Run the same rights-cleared corpus through each engine, then create a blind comp
   --baseline open-small --output-dir evaluation/comparison
 ```
 
-The included corpus is a smoke fixture. A release decision still requires a representative,
-rights-cleared corpus, blind listening judgments, and license review.
+`corpus.example.json` remains a weight-free smoke fixture. The pinned CC0 corpus provides target
+class and lock coverage; a release decision still requires minimum-hardware runs, blind listening
+judgments, and counsel's redistribution review.
 
 ## Non-goals
 
