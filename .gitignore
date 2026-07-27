@@ -1,5 +1,6 @@
 .DS_Store
 .venv/
+.venv-sa3/
 .pytest_cache/
 .ruff_cache/
 __pycache__/
