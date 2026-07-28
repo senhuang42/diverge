@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+from huggingface_hub.errors import GatedRepoError
 from scipy.signal import butter, sosfiltfilt
 
 TRANSFORM_NOISE_MIN = 0.10
@@ -713,7 +714,15 @@ class StableAudio3Generator:
                     "see the Phase 0 setup in README.md"
                 ) from exc
             factory = StableAudioModel.from_pretrained
-        self._model = factory(self.model_name, device=self.device)
+        try:
+            self._model = factory(self.model_name, device=self.device)
+        except GatedRepoError as exc:
+            model_id = self.MODEL_IDS[self.model_name]
+            raise RuntimeError(
+                f"Cannot access gated model {model_id}. Visit "
+                f"https://huggingface.co/{model_id}, accept its access terms, then authenticate "
+                "this machine with a Hugging Face token that has permission to download it."
+            ) from exc
         return self._model
 
     def generate(

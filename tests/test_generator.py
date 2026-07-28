@@ -1,4 +1,5 @@
 import numpy as np
+from huggingface_hub.errors import GatedRepoError
 
 from diverge.generator import (
     OPEN_SMALL_MAX_DURATION_S,
@@ -171,3 +172,16 @@ def test_sa3_adapter_batches_audio_to_audio_with_exact_duration() -> None:
     assert [call["seed"] for call in calls] == [7, 9]
     assert all(call["init_audio"][0] == 44_100 for call in calls)
     assert all(call["prompt"] == "metal impact" for call in calls)
+
+
+def test_sa3_adapter_explains_how_to_unlock_a_gated_model() -> None:
+    def deny_access(*_args, **_kwargs):
+        raise GatedRepoError("restricted")
+
+    generator = StableAudio3Generator("small-music", model_factory=deny_access)
+
+    with np.testing.assert_raises_regex(
+        RuntimeError,
+        r"huggingface\.co/stabilityai/stable-audio-3-small-music.*accept its access terms",
+    ):
+        generator._load()

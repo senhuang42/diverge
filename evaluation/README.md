@@ -32,6 +32,11 @@ meet the product budget. A reference-machine pass does not satisfy the minimum-h
 
 ## Run and compare
 
+Before the first Stable Audio 3 run, request access to the
+[Small Music](https://huggingface.co/stabilityai/stable-audio-3-small-music) and
+[Small SFX](https://huggingface.co/stabilityai/stable-audio-3-small-sfx) repositories, accept
+their terms, and authenticate this machine with a Hugging Face token that can download both.
+
 ```bash
 .venv/bin/diverge benchmark --corpus evaluation/corpus.cc0.json \
   --engine open-small --fast --hardware-tier reference
